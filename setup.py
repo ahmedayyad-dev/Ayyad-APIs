@@ -6,7 +6,7 @@ long_description = (this_directory / "README.md").read_text(encoding="utf-8")
 
 setup(
     name="ayyad_apis",
-    version="0.1.0",
+    version="0.1.1",
     description="Collection of Python wrappers",
     long_description=long_description,
     long_description_content_type="text/markdown",
