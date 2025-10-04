@@ -10,9 +10,10 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 
-# استثناءات مخصصة
+# ==================== Custom Exceptions ====================
+
 class DetectionError(Exception):
-    """خطأ عند فشل عملية الكشف"""
+    """Error raised when detection process fails"""
 
     def __init__(self, reason: str):
         self.reason = reason
@@ -20,7 +21,7 @@ class DetectionError(Exception):
 
 
 class APIResponseError(Exception):
-    """خطأ عندما الAPI مايرجعش 200 أو يرجع رسالة خطأ"""
+    """Error raised when the API does not return a 200 response or provides an error message"""
 
     def __init__(self, message: str):
         self.message = message
@@ -28,19 +29,20 @@ class APIResponseError(Exception):
 
 
 class UploadError(Exception):
-    """خطأ عند فشل رفع الملف"""
+    """Error raised when file upload fails"""
 
     def __init__(self, reason: str):
         self.reason = reason
         super().__init__(f"Upload failed: {reason}")
 
 
-# إعدادات تحليل الفيديو
+# ==================== Video Analysis Configuration ====================
+
 @dataclass
 class VideoAnalysisConfig:
-    """إعدادات تحليل الفيديو"""
+    """Configuration for video analysis"""
     start_sec: float = 0.0
-    duration_sec: float = 0.0  # 0.0 = تحليل كامل
+    duration_sec: float = 0.0  # 0.0 = analyze the entire video
     thresh_high: float = 0.70
     thresh_low: float = 0.60
     min_hit_duration: float = 1.0
@@ -48,7 +50,7 @@ class VideoAnalysisConfig:
     smooth_window: int = 5
 
     def to_params(self) -> Dict[str, str]:
-        """تحويل الإعدادات إلى parameters للAPI"""
+        """Convert settings into API parameters"""
         return {
             "start_sec": str(self.start_sec),
             "duration_sec": str(self.duration_sec),
@@ -60,57 +62,60 @@ class VideoAnalysisConfig:
         }
 
 
-# نتيجة كشف الصورة
+# ==================== Image Detection Result ====================
+
 @dataclass
 class ImageDetectionResult:
-    """نتيجة كشف المحتوى في الصورة"""
-    label: str = "SFW"  # "NSFW" أو "SFW"
+    """Result of image content detection"""
+    label: str = "Safe"  # "Unsafe" or "Safe"
     nsfw_prob: float = 0.0
     threshold: float = 0.7
     success: bool = True
 
     @property
     def is_nsfw(self) -> bool:
-        """هل المحتوى غير آمن؟"""
-        return self.label == "NSFW"
+        """Check if content is unsafe"""
+        return self.label == "Unsafe"
 
     @property
     def is_safe(self) -> bool:
-        """هل المحتوى آمن؟"""
-        return self.label == "SFW"
+        """Check if content is safe"""
+        return self.label == "Safe"
 
     @property
     def confidence_percentage(self) -> str:
-        """نسبة الثقة كنسبة مئوية"""
+        """Confidence level as percentage"""
         return f"{self.nsfw_prob * 100:.1f}%"
 
     @property
     def safety_level(self) -> str:
-        """مستوى الأمان"""
+        """Safety level description"""
         if self.is_safe:
-            return "آمن"
+            return "Safe"
         elif self.nsfw_prob >= 0.9:
-            return "خطر عالي"
+            return "High Risk"
         elif self.nsfw_prob >= 0.7:
-            return "خطر متوسط"
+            return "Moderate Risk"
         else:
-            return "خطر منخفض"
+            return "Low Risk"
 
 
-# معلومات العتبات المستخدمة في تحليل الفيديو
+# ==================== Video Thresholds ====================
+
 @dataclass
 class VideoThresholds:
-    """العتبات المستخدمة في تحليل الفيديو"""
+    """Thresholds used in video analysis"""
     thresh_high: float = 0.8
     thresh_low: float = 0.7
     min_hit_duration: float = 1.0
     min_ratio: float = 0.02
 
 
-# إحصائيات تحليل الفيديو
+# ==================== Video Statistics ====================
+
 @dataclass
 class VideoStats:
-    """إحصائيات مفصلة لتحليل الفيديو"""
+    """Detailed video analysis statistics"""
     max_prob: float = 0.0
     avg_prob: float = 0.0
     total_duration: float = 0.0
@@ -122,46 +127,47 @@ class VideoStats:
 
     @property
     def max_prob_percentage(self) -> str:
-        """أقصى احتمالية كنسبة مئوية"""
+        """Maximum probability as percentage"""
         return f"{self.max_prob * 100:.1f}%"
 
     @property
     def avg_prob_percentage(self) -> str:
-        """متوسط الاحتمالية كنسبة مئوية"""
+        """Average probability as percentage"""
         return f"{self.avg_prob * 100:.1f}%"
 
     @property
     def ratio_above_percentage(self) -> str:
-        """نسبة المحتوى فوق العتبة كنسبة مئوية"""
+        """Ratio above threshold as percentage"""
         return f"{self.ratio_above * 100:.1f}%"
 
     @property
     def total_duration_formatted(self) -> str:
-        """مدة الفيديو الكاملة منسقة"""
+        """Formatted total video duration"""
         return self._format_duration(self.total_duration)
 
     @property
     def total_above_duration_formatted(self) -> str:
-        """مدة المحتوى غير الآمن منسقة"""
+        """Formatted unsafe content duration"""
         return self._format_duration(self.total_above_duration)
 
     @property
     def max_streak_formatted(self) -> str:
-        """أطول فترة متواصلة منسقة"""
+        """Formatted longest continuous unsafe streak"""
         return self._format_duration(self.max_streak)
 
     def _format_duration(self, seconds: float) -> str:
-        """تنسيق الوقت إلى HH:MM:SS"""
+        """Format duration as HH:MM:SS"""
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
 
-# نتيجة كشف الفيديو
+# ==================== Video Detection Result ====================
+
 @dataclass
 class VideoDetectionResult:
-    """نتيجة كشف المحتوى في الفيديو"""
+    """Result of video content detection"""
     nsfw: bool = False
     reason: str = ""
     thresholds: Optional[VideoThresholds] = None
@@ -170,42 +176,45 @@ class VideoDetectionResult:
 
     @property
     def is_nsfw(self) -> bool:
-        """هل المحتوى غير آمن؟"""
+        """Check if content is unsafe"""
         return self.nsfw
 
     @property
     def is_safe(self) -> bool:
-        """هل المحتوى آمن؟"""
+        """Check if content is safe"""
         return not self.nsfw
 
     @property
     def safety_level(self) -> str:
-        """مستوى الأمان بناءً على الإحصائيات"""
+        """Determine safety level based on statistics"""
         if self.is_safe:
-            return "آمن"
+            return "Safe"
         elif self.stats and self.stats.max_prob >= 0.9:
-            return "خطر عالي"
+            return "High Risk"
         elif self.stats and self.stats.max_prob >= 0.7:
-            return "خطر متوسط"
+            return "Moderate Risk"
         else:
-            return "خطر منخفض"
+            return "Low Risk"
 
 
-# معلومات رابط الرفع
+# ==================== Upload URL Information ====================
+
 @dataclass
 class UploadUrl:
-    """رابط رفع الفيديو"""
+    """Video upload URL"""
     url: str
     key: str = ""
 
     def __post_init__(self):
-        """استخراج المفتاح من الرابط"""
+        """Extract key from the URL"""
         if "key=" in self.url:
             self.key = self.url.split("key=")[1].split("&")[0]
 
 
+# ==================== API Client ====================
+
 class PornDetectionAPI:
-    """API wrapper لكشف المحتوى الإباحي"""
+    """API wrapper for pornographic content detection"""
 
     def __init__(self, api_key: str, timeout: int = 60, max_retries: int = 3, retry_delay: float = 1.0):
         self.api_key = api_key
@@ -230,11 +239,13 @@ class PornDetectionAPI:
         if self._session:
             await self._session.close()
 
+    # -------------------- Response Parsers --------------------
+
     def _parse_image_response(self, data: Dict[str, Any]) -> ImageDetectionResult:
-        """تحليل استجابة كشف الصورة"""
+        """Parse image detection response"""
         try:
             return ImageDetectionResult(
-                label=data.get("label", "SFW"),
+                label=data.get("label", "Safe"),
                 nsfw_prob=data.get("nsfw_prob", 0.0),
                 threshold=data.get("threshold", 0.7),
                 success=True
@@ -244,9 +255,8 @@ class PornDetectionAPI:
             return ImageDetectionResult(success=False)
 
     def _parse_video_response(self, data: Dict[str, Any]) -> VideoDetectionResult:
-        """تحليل استجابة كشف الفيديو"""
+        """Parse video detection response"""
         try:
-            # تحليل العتبات
             thresholds_data = data.get("thresholds", {})
             thresholds = VideoThresholds(
                 thresh_high=thresholds_data.get("thresh_high", 0.8),
@@ -255,7 +265,6 @@ class PornDetectionAPI:
                 min_ratio=thresholds_data.get("min_ratio", 0.02)
             )
 
-            # تحليل الإحصائيات
             stats_data = data.get("stats", {})
             stats = VideoStats(
                 max_prob=stats_data.get("max_prob", 0.0),
@@ -280,7 +289,7 @@ class PornDetectionAPI:
             return VideoDetectionResult(success=False)
 
     def _parse_upload_url_response(self, data: Dict[str, Any]) -> UploadUrl:
-        """تحليل استجابة طلب رابط الرفع"""
+        """Parse response for upload URL request"""
         try:
             url = data.get("url", "")
             return UploadUrl(url=url)
@@ -288,8 +297,10 @@ class PornDetectionAPI:
             logger.error(f"Failed to parse upload URL response: {e}")
             raise APIResponseError(f"Invalid upload URL response: {e}")
 
+    # -------------------- Request Handlers --------------------
+
     async def _request_get(self, endpoint: str, params: Dict[str, str]) -> Dict[str, Any]:
-        """إرسال طلب GET"""
+        """Send GET request to API"""
         url = f"{self._base_url}/{endpoint}"
         logger.info(f"GET {url} with params: {params}")
 
@@ -301,7 +312,7 @@ class PornDetectionAPI:
 
                 try:
                     return await response.json()
-                except Exception as e:
+                except Exception:
                     text = await response.text()
                     raise APIResponseError(f"Invalid JSON response: {text}")
 
@@ -311,7 +322,7 @@ class PornDetectionAPI:
             raise APIResponseError(f"Request failed: {str(e)}")
 
     async def _request_post_multipart(self, url: str, file_path: str, params: Dict[str, str] = None) -> Dict[str, Any]:
-        """إرسال طلب POST مع رفع ملف"""
+        """Send POST request with file upload"""
         logger.info(f"POST {url} - uploading file: {file_path}")
 
         if not Path(file_path).exists():
@@ -320,7 +331,6 @@ class PornDetectionAPI:
         try:
             data = aiohttp.FormData()
 
-            # إضافة الملف
             async with aiofiles.open(file_path, 'rb') as f:
                 file_content = await f.read()
                 data.add_field('file',
@@ -328,7 +338,6 @@ class PornDetectionAPI:
                                filename=Path(file_path).name,
                                content_type='application/octet-stream')
 
-            # إرسال الطلب
             async with self._session.post(url, data=data, params=params) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -336,7 +345,7 @@ class PornDetectionAPI:
 
                 try:
                     return await response.json()
-                except Exception as e:
+                except Exception:
                     text = await response.text()
                     raise UploadError(f"Invalid JSON response after upload: {text}")
 
@@ -346,7 +355,7 @@ class PornDetectionAPI:
             raise UploadError(f"Upload request failed: {str(e)}")
 
     async def _request_post_internal(self, endpoint: str, file_path: str, params: Dict[str, str]) -> Dict[str, Any]:
-        """إرسال طلب POST للendpoints الداخلية"""
+        """Send POST request to internal endpoints"""
         url = f"{self._base_url}/{endpoint}"
         logger.info(f"POST {url} - uploading file: {file_path}")
 
@@ -356,7 +365,6 @@ class PornDetectionAPI:
         try:
             data = aiohttp.FormData()
 
-            # إضافة الملف
             async with aiofiles.open(file_path, 'rb') as f:
                 file_content = await f.read()
                 data.add_field('file',
@@ -364,7 +372,6 @@ class PornDetectionAPI:
                                filename=Path(file_path).name,
                                content_type='application/octet-stream')
 
-            # إرسال الطلب
             async with self._session.post(url, data=data, params=params) as response:
                 if response.status != 200:
                     error_text = await response.text()
@@ -372,7 +379,7 @@ class PornDetectionAPI:
 
                 try:
                     return await response.json()
-                except Exception as e:
+                except Exception:
                     text = await response.text()
                     raise APIResponseError(f"Invalid JSON response: {text}")
 
@@ -381,64 +388,60 @@ class PornDetectionAPI:
         except Exception as e:
             raise APIResponseError(f"Request failed: {str(e)}")
 
-    # ==================== Image Detection Methods ====================
+    # -------------------- Image Detection --------------------
 
     async def predict_image_url(self, image_url: str, threshold: float = 0.7) -> ImageDetectionResult:
         """
-        كشف المحتوى الإباحي من رابط صورة.
+        Detect pornographic content from an image URL.
 
         Args:
-            image_url (str): رابط الصورة
-            threshold (float): العتبة للقرار (افتراضي: 0.7)
+            image_url (str): Image URL
+            threshold (float): Decision threshold (default: 0.7)
 
         Returns:
-            ImageDetectionResult: نتيجة كشف المحتوى
+            ImageDetectionResult: Detection result
 
         Raises:
-            APIResponseError: إذا فشل الطلب
+            APIResponseError: If the request fails
         """
-        params = {
-            "image_url": image_url,
-            "threshold": str(threshold)
-        }
-
+        params = {"image_url": image_url, "threshold": str(threshold)}
         data = await self._request_get("predict_image_url", params)
         return self._parse_image_response(data)
 
     async def predict_image_upload(self, image_path: str, threshold: float = 0.7) -> ImageDetectionResult:
         """
-        كشف المحتوى الإباحي من ملف صورة محلي.
+        Detect pornographic content from a local image file.
 
         Args:
-            image_path (str): مسار الصورة المحلية
-            threshold (float): العتبة للقرار (افتراضي: 0.7)
+            image_path (str): Path to local image file
+            threshold (float): Decision threshold (default: 0.7)
 
         Returns:
-            ImageDetectionResult: نتيجة كشف المحتوى
+            ImageDetectionResult: Detection result
 
         Raises:
-            APIResponseError: إذا فشل الطلب
-            UploadError: إذا فشل رفع الملف
+            APIResponseError: If the request fails
+            UploadError: If the file upload fails
         """
         params = {"threshold": str(threshold)}
         data = await self._request_post_internal("predict_image_upload", image_path, params)
         return self._parse_image_response(data)
 
-    # ==================== Video Detection Methods ====================
+    # -------------------- Video Detection --------------------
 
     async def predict_video_url(self, video_url: str, config: VideoAnalysisConfig = None) -> VideoDetectionResult:
         """
-        كشف المحتوى الإباحي من رابط فيديو.
+        Detect pornographic content from a video URL.
 
         Args:
-            video_url (str): رابط الفيديو
-            config (VideoAnalysisConfig): إعدادات التحليل
+            video_url (str): Video URL
+            config (VideoAnalysisConfig): Analysis configuration
 
         Returns:
-            VideoDetectionResult: نتيجة كشف المحتوى
+            VideoDetectionResult: Detection result
 
         Raises:
-            APIResponseError: إذا فشل الطلب
+            APIResponseError: If the request fails
         """
         if config is None:
             config = VideoAnalysisConfig()
@@ -451,16 +454,16 @@ class PornDetectionAPI:
 
     async def request_video_upload_url(self, config: VideoAnalysisConfig = None) -> UploadUrl:
         """
-        طلب رابط لرفع فيديو للتحليل.
+        Request an upload URL for video analysis.
 
         Args:
-            config (VideoAnalysisConfig): إعدادات التحليل
+            config (VideoAnalysisConfig): Analysis configuration
 
         Returns:
-            UploadUrl: رابط الرفع مع المفتاح
+            UploadUrl: Upload URL with key
 
         Raises:
-            APIResponseError: إذا فشل الطلب
+            APIResponseError: If the request fails
         """
         if config is None:
             config = VideoAnalysisConfig()
@@ -469,45 +472,41 @@ class PornDetectionAPI:
         data = await self._request_get("request_video_upload_url", params)
         return self._parse_upload_url_response(data)
 
-    async def upload_video_and_analyze(self, video_path: str,
-                                       config: VideoAnalysisConfig = None) -> VideoDetectionResult:
+    async def upload_video_and_analyze(self, video_path: str, config: VideoAnalysisConfig = None) -> VideoDetectionResult:
         """
-        رفع فيديو وتحليله (العملية الكاملة).
+        Upload a video and perform analysis.
 
         Args:
-            video_path (str): مسار الفيديو المحلي
-            config (VideoAnalysisConfig): إعدادات التحليل
+            video_path (str): Path to local video file
+            config (VideoAnalysisConfig): Analysis configuration
 
         Returns:
-            VideoDetectionResult: نتيجة كشف المحتوى
+            VideoDetectionResult: Detection result
 
         Raises:
-            APIResponseError: إذا فشل الطلب
-            UploadError: إذا فشل رفع الملف
+            APIResponseError: If the request fails
+            UploadError: If the file upload fails
         """
-        # الحصول على رابط الرفع
-        logger.info("طلب رابط رفع الفيديو...")
+        logger.info("Requesting video upload URL...")
         upload_info = await self.request_video_upload_url(config)
 
-        # رفع الفيديو
-        logger.info(f"رفع الفيديو إلى: {upload_info.url}")
+        logger.info(f"Uploading video to: {upload_info.url}")
         data = await self._request_post_multipart(upload_info.url, video_path)
 
         return self._parse_video_response(data)
 
-    # ==================== Batch Operations ====================
+    # -------------------- Batch Analysis --------------------
 
     async def _process_batch_analysis(self, items: list, analysis_func, item_name: str) -> list:
-        """معالجة موحدة للتحليل المتعدد"""
+        """Generic handler for batch analysis"""
         results = []
         for i, item in enumerate(items):
             try:
                 result = await analysis_func(item)
                 results.append(result)
-                logger.info(f"تم تحليل {item_name} {i + 1}: {item} - آمن: {result.is_safe}")
+                logger.info(f"Processed {item_name} {i + 1}: {item} - Safe: {result.is_safe}")
             except Exception as e:
-                logger.error(f"فشل تحليل {item_name} {i + 1} ({item}): {e}")
-                # إنشاء نتيجة فاشلة حسب نوع التحليل
+                logger.error(f"Failed to analyze {item_name} {i + 1} ({item}): {e}")
                 if 'image' in item_name.lower():
                     results.append(ImageDetectionResult(success=False))
                 else:
@@ -516,36 +515,18 @@ class PornDetectionAPI:
         return results
 
     async def batch_analyze_images(self, image_urls: list, threshold: float = 0.7) -> list[ImageDetectionResult]:
-        """
-        تحليل عدة صور من روابط.
-
-        Args:
-            image_urls (list): قائمة روابط الصور
-            threshold (float): العتبة للقرار
-
-        Returns:
-            list[ImageDetectionResult]: قائمة نتائج التحليل
-        """
+        """Analyze multiple images from URLs"""
 
         async def analyze_single_image(url):
             return await self.predict_image_url(url, threshold)
 
-        return await self._process_batch_analysis(image_urls, analyze_single_image, "صورة")
+        return await self._process_batch_analysis(image_urls, analyze_single_image, "Image")
 
     async def batch_analyze_videos(self, video_urls: list, config: VideoAnalysisConfig = None) -> list[VideoDetectionResult]:
-        """
-        تحليل عدة فيديوهات من روابط.
-
-        Args:
-            video_urls (list): قائمة روابط الفيديوهات
-            config (VideoAnalysisConfig): إعدادات التحليل
-
-        Returns:
-            list[VideoDetectionResult]: قائمة نتائج التحليل
-        """
+        """Analyze multiple videos from URLs"""
 
         async def analyze_single_video(url):
             return await self.predict_video_url(url, config)
 
-        return await self._process_batch_analysis(video_urls, analyze_single_video, "فيديو")
+        return await self._process_batch_analysis(video_urls, analyze_single_video, "Video")
 
