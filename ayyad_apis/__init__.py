@@ -29,6 +29,14 @@ from .youtube_to_telegram import (
     HostResponse,
 )
 
+from .youtube_suggest import (
+    YouTubeSuggestAPI,
+    SuggestError,
+    APIResponseError as SuggestAPIResponseError,
+    ProcessingError,
+    SuggestionResult,
+)
+
 __all__ = [
     # Porn Detection
     "PornDetectionAPI",
@@ -57,4 +65,11 @@ __all__ = [
     "ServerResponse",
     "HostDownloadField",
     "HostResponse",
+
+    # YouTube Suggest
+    "YouTubeSuggestAPI",
+    "SuggestError",
+    "SuggestAPIResponseError",
+    "ProcessingError",
+    "SuggestionResult",
 ]
