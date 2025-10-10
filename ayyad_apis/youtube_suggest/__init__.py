@@ -7,7 +7,6 @@ from typing import Optional, List, Union
 import aiohttp
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
 
 
 # ==================== Custom Exceptions ====================
