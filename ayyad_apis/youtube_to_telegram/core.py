@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
-
+import asyncio
 import aiohttp
 
 logger = logging.getLogger(__name__)
@@ -125,6 +125,54 @@ class ServerDownloadField:
     """Download field returned in youtube_to_server endpoint"""
     download_url: str
 
+@dataclass
+class Thumbnail:
+    """Thumbnail information"""
+    url: str = None
+    width: int = None
+    height: int = None
+
+
+@dataclass
+class ViewCount:
+    """View count information"""
+    text: str = None
+    short: str = None
+
+
+@dataclass
+class Channel:
+    """Channel information"""
+    name: str = None
+    id: str = None
+    thumbnails: List[dict] = None
+    link: str = None
+
+
+@dataclass
+class Accessibility:
+    """Accessibility information"""
+    title: str = None
+    duration: str = None
+
+
+@dataclass
+class VideoSearchResult:
+    """Single video result"""
+    type: str = None
+    id: str = None
+    title: str = None
+    publishedTime: str = None
+    duration: str = None
+    viewCount: ViewCount = None
+    thumbnails: List[Thumbnail] = None
+    richThumbnail: Optional[dict] = None
+    descriptionSnippet: List[dict] = None
+    channel: Channel = None
+    accessibility: Accessibility = None
+    link: str = None
+    shelfTitle: Optional[str] = None
+
 
 @dataclass
 class ServerResponse(Video):
@@ -163,7 +211,8 @@ class HostResponse(Video):
 class YouTubeAPI:
     """API client wrapper for YouTube to Telegram/Server/Host endpoints"""
 
-    def __init__(self, api_key: str, timeout: int = 300, max_retries: int = 5, retry_delay: float = 1.0):
+    def __init__(self, api_key: str, timeout: int = 300, max_retries: int = 5, retry_delay: float = 1.0,
+                 max_wait_time: int = 0):
         self.api_key = api_key
         self._base_url = "https://youtube-to-telegram-uploader-api.p.rapidapi.com"
         self._headers = {
@@ -174,6 +223,7 @@ class YouTubeAPI:
         self._timeout = timeout
         self._max_retries = max_retries
         self._retry_delay = retry_delay
+        self._max_wait_time = max_wait_time
 
     async def __aenter__(self):
         self._session = aiohttp.ClientSession(headers=self._headers)
@@ -216,6 +266,20 @@ class YouTubeAPI:
             # No special handling needed
             pass
 
+        elif response_class == VideoSearchResult:
+            # Handle search result nested objects
+            if 'viewCount' in parsed_data and isinstance(parsed_data['viewCount'], dict):
+                parsed_data['viewCount'] = ViewCount(**parsed_data['viewCount'])
+
+            if 'thumbnails' in parsed_data and isinstance(parsed_data['thumbnails'], list):
+                parsed_data['thumbnails'] = [Thumbnail(**thumb) for thumb in parsed_data['thumbnails']]
+
+            if 'channel' in parsed_data and isinstance(parsed_data['channel'], dict):
+                parsed_data['channel'] = Channel(**parsed_data['channel'])
+
+            if 'accessibility' in parsed_data and isinstance(parsed_data['accessibility'], dict):
+                parsed_data['accessibility'] = Accessibility(**parsed_data['accessibility'])
+
         # Handle common Video fields present in almost all responses
         if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
             uploader_data = parsed_data['uploader'].copy()
@@ -256,7 +320,8 @@ class YouTubeAPI:
             # Return a safe instance with default values
             safe_data = {}
             for field_name, field_info in response_class.__dataclass_fields__.items():
-                safe_data[field_name] = parsed_data.get(field_name, field_info.default if field_info.default is not None else None)
+                safe_data[field_name] = parsed_data.get(field_name,
+                                                        field_info.default if field_info.default is not None else None)
             return response_class(**safe_data)
 
     async def _request(self, endpoint: str, params: dict) -> dict:
@@ -277,9 +342,29 @@ class YouTubeAPI:
                     text_response = await response.text()
                     raise APIResponseError(text_response or "Empty response from API")
 
-                if isinstance(data, dict) and data.get("success", False) is False:
-                    error_msg = data.get("message") or data.get("messages", "Unknown error")
-                    raise APIResponseError(error_msg)
+                if isinstance(data, dict):
+                    try_after = data.get("try_after")
+
+                    if try_after is not None:
+                        if try_after > self._max_wait_time:
+                            error_msg = data.get("message", f"Download delay required: {try_after} seconds")
+                            raise APIResponseError(error_msg)
+
+                        logger.info(f"Waiting {try_after} seconds before retry...")
+                        await asyncio.sleep(try_after)
+
+                        logger.info(f"Retrying request after waiting...")
+                        async with self._session.get(url, params=params) as retry_response:
+                            if retry_response.status != 200:
+                                error_text = await retry_response.text()
+                                clean_message = self._extract_error_message(error_text)
+                                raise APIResponseError(clean_message)
+
+                            data = await retry_response.json()
+
+                    if data.get("success", False) is False:
+                        error_msg = data.get("message") or data.get("messages", "Unknown error")
+                        raise APIResponseError(error_msg)
 
                 return data
 
@@ -288,8 +373,7 @@ class YouTubeAPI:
         except Exception as e:
             raise APIResponseError(f"Connection error: {str(e)}")
 
-    async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
-                            retry_delay: Optional[float] = None) -> DownloadResult:
+    async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None, retry_delay: Optional[float] = None) -> DownloadResult:
         """Download file from URL to local path"""
         if not self._session:
             raise DownloadError("Session not initialized")
@@ -364,29 +448,39 @@ class YouTubeAPI:
 
     async def youtube_to_server(self, video_id: str, format: str = "audio") -> ServerResponse:
         """Get downloadable server URL for a given video"""
-        params = {"video_id": video_id, "format": format}
-        data = await self._request("youtube_to_server", params)
+        data = await self._request("youtube_to_server", {"video_id": video_id, "format": format})
         return self._parse_response_data(data, ServerResponse)
 
     async def youtube_to_host(self, video_id: str, format: str = "audio") -> HostResponse:
         """Get hosted download URL for a given video"""
-        params = {"video_id": video_id, "format": format}
-        data = await self._request("youtube_to_host", params)
+        data = await self._request("youtube_to_host", {"video_id": video_id, "format": format})
         return self._parse_response_data(data, HostResponse)
 
     async def youtube_to_telegram(self, video_id: str, format: str = "audio", mode: str = "telegram") -> TelegramInfoResponse:
         """Upload YouTube video to Telegram or fetch Telegram+video info"""
-        params = {"video_id": video_id, "format": format, "mode": mode}
-        data = await self._request("youtube_to_telegram", params)
+        data = await self._request("youtube_to_telegram", {"video_id": video_id, "format": format, "mode": mode})
         return self._parse_response_data(data, TelegramInfoResponse)
 
     async def youtube_live_hls(self, video_id: str) -> LiveStream:
-        """Get HLS live stream URL for a YouTube video"""
+        """Get HLS live stream URL for a YouTube Live"""
         data = await self._request("youtube_live_hls", {"video_id": video_id})
         return LiveStream(url=data.get("url"))
 
     async def youtube_live_mp4(self, video_id: str) -> LiveStream:
-        """Get MP4 live stream URL for a YouTube video"""
+        """Get MP4 live stream URL for a YouTube Live"""
         data = await self._request("youtube_live_mp4", {"video_id": video_id})
         return LiveStream(url=data.get("url"))
 
+    async def search(self, query: str, limit: int = 5) -> List[VideoSearchResult]:
+        """Search on YouTube for a given query"""
+        data = await self._request("search", {"query": query, "limit": limit})
+        results = []
+        if isinstance(data, list):
+            for item in data:
+                results.append(self._parse_response_data(item, VideoSearchResult))
+        return results
+
+    async def youtube_video_stream(self, video_id: str, format: str = "audio") -> LiveStream:
+        """Get MP4 live stream URL for a YouTube video"""
+        data = await self._request("youtube_video_stream", {"video_id": video_id, "format": format})
+        return LiveStream(url=data.get("url"))
