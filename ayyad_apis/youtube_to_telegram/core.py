@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass
 from pathlib import Path
@@ -30,9 +32,11 @@ class APIResponseError(Exception):
 
 @dataclass
 class Channel:
-    """Represents a video uploader channel"""
+    """Channel information"""
     name: str = None
-    url: str = None
+    id: str = None
+    thumbnails: List[dict] = None
+    link: str = None
 
 
 @dataclass
@@ -125,6 +129,7 @@ class ServerDownloadField:
     """Download field returned in youtube_to_server endpoint"""
     download_url: str
 
+
 @dataclass
 class Thumbnail:
     """Thumbnail information"""
@@ -138,15 +143,6 @@ class ViewCount:
     """View count information"""
     text: str = None
     short: str = None
-
-
-@dataclass
-class Channel:
-    """Channel information"""
-    name: str = None
-    id: str = None
-    thumbnails: List[dict] = None
-    link: str = None
 
 
 @dataclass
@@ -178,13 +174,19 @@ class VideoSearchResult:
 class ServerResponse(Video):
     """Response for /youtube_to_server"""
     download: ServerDownloadField = None
-    _api_instance: Optional['YouTubeAPI'] = None
+    _api_instance: Optional[YouTubeAPI] = None
 
-    async def download_file(self, file_path: str, max_retries=None, retry_delay=None) -> DownloadResult:
+    async def download_file(self, file_path: str, max_retries: Optional[int] = None,
+                            retry_delay: Optional[float] = None) -> DownloadResult:
         if not self._api_instance:
             raise DownloadError("API instance not available")
         logger.info(f"Downloading file to {file_path} from server...")
-        return await self._api_instance.download_file(self.download.download_url, file_path, max_retries, retry_delay)
+
+        # Use instance defaults if not specified
+        retries = max_retries if max_retries is not None else self._api_instance._max_retries
+        delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
+
+        return await self._api_instance.download_file(self.download.download_url, file_path, retries, delay)
 
 
 @dataclass
@@ -197,13 +199,19 @@ class HostDownloadField:
 class HostResponse(Video):
     """Response for /youtube_to_host"""
     hosting: HostDownloadField = None
-    _api_instance: Optional['YouTubeAPI'] = None
+    _api_instance: Optional[YouTubeAPI] = None
 
-    async def download_file(self, file_path: str, max_retries=None, retry_delay=None) -> DownloadResult:
+    async def download_file(self, file_path: str, max_retries: Optional[int] = None,
+                            retry_delay: Optional[float] = None) -> DownloadResult:
         if not self._api_instance:
             raise DownloadError("API instance not available")
         logger.info(f"Downloading file to {file_path} from hosting...")
-        return await self._api_instance.download_file(self.hosting.download_url, file_path, max_retries, retry_delay)
+
+        # Use instance defaults if not specified
+        retries = max_retries if max_retries is not None else self._api_instance._max_retries
+        delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
+
+        return await self._api_instance.download_file(self.hosting.download_url, file_path, retries, delay)
 
 
 # ==================== API Client ====================
@@ -342,6 +350,7 @@ class YouTubeAPI:
                     text_response = await response.text()
                     raise APIResponseError(text_response or "Empty response from API")
 
+                # Check if response is a dict before accessing dict methods
                 if isinstance(data, dict):
                     try_after = data.get("try_after")
 
@@ -373,52 +382,77 @@ class YouTubeAPI:
         except Exception as e:
             raise APIResponseError(f"Connection error: {str(e)}")
 
-    async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None, retry_delay: Optional[float] = None) -> DownloadResult:
-        """Download file from URL to local path"""
+    async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
+                            retry_delay: Optional[float] = None) -> DownloadResult:
+        """Download file from URL to local path with retry support"""
         if not self._session:
             raise DownloadError("Session not initialized")
 
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-        try:
-            logger.info(f"[Download] Starting download from: {url}")
-            async with self._session.get(url) as response:
-                if response.status != 200:
-                    raise DownloadError(f"HTTP {response.status}: Download failed")
+        # Use instance defaults if not specified
+        retries = max_retries if max_retries is not None else self._max_retries
+        delay = retry_delay if retry_delay is not None else self._retry_delay
 
-                total_size = int(response.headers.get('content-length', 0))
+        last_error = None
 
-                with open(file_path, "wb") as f:
-                    downloaded = 0
-                    last_logged = 0
+        for attempt in range(retries):
+            try:
+                logger.info(f"[Download] Starting download from: {url} (Attempt {attempt + 1}/{retries})")
+                async with self._session.get(url) as response:
+                    if response.status != 200:
+                        raise DownloadError(f"HTTP {response.status}: Download failed")
 
-                    async for chunk in response.content.iter_chunked(8192):
-                        f.write(chunk)
-                        downloaded += len(chunk)
+                    total_size = int(response.headers.get('content-length', 0))
 
-                        if total_size > 0:
-                            percentage = (downloaded / total_size) * 100
-                            print(f"\r[Download] Progress: {percentage:.1f}%", end="", flush=True)
+                    with open(file_path, "wb") as f:
+                        downloaded = 0
+                        last_logged = 0
 
-                            current_milestone = int(percentage // 10) * 10
-                            if current_milestone > last_logged and current_milestone > 0:
-                                self._log_progress_checkpoint(current_milestone, "completed")
-                                last_logged = current_milestone
-                        else:
-                            print(f"\r[Download] Downloaded: {downloaded:,} bytes", end="", flush=True)
-                            current_mb = downloaded // (1024 * 1024)
-                            if current_mb > last_logged:
-                                self._log_progress_checkpoint(current_mb, "MB downloaded")
-                                last_logged = current_mb
+                        async for chunk in response.content.iter_chunked(8192):
+                            f.write(chunk)
+                            downloaded += len(chunk)
 
-                print()
-                logger.info(f"[Download] Success - {file_path} ({downloaded:,} bytes)")
-                return DownloadResult(file_path=file_path, file_size=downloaded)
+                            if total_size > 0:
+                                percentage = (downloaded / total_size) * 100
+                                print(f"\r[Download] Progress: {percentage:.1f}%", end="", flush=True)
 
-        except DownloadError:
-            raise
-        except Exception as e:
-            raise DownloadError(f"Download error: {str(e)}")
+                                current_milestone = int(percentage // 10) * 10
+                                if current_milestone > last_logged and current_milestone > 0:
+                                    self._log_progress_checkpoint(current_milestone, "% completed")
+                                    last_logged = current_milestone
+                            else:
+                                print(f"\r[Download] Downloaded: {downloaded:,} bytes", end="", flush=True)
+                                current_mb = downloaded // (1024 * 1024)
+                                if current_mb > last_logged:
+                                    self._log_progress_checkpoint(current_mb, "MB downloaded")
+                                    last_logged = current_mb
+
+                    print()
+                    logger.info(f"[Download] Success - {file_path} ({downloaded:,} bytes)")
+                    return DownloadResult(file_path=file_path, file_size=downloaded)
+
+            except DownloadError as e:
+                last_error = e
+                if attempt < retries - 1:
+                    logger.warning(f"[Download] Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[Download] All {retries} attempts failed")
+                    raise
+            except Exception as e:
+                last_error = DownloadError(f"Download error: {str(e)}")
+                if attempt < retries - 1:
+                    logger.warning(f"[Download] Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.error(f"[Download] All {retries} attempts failed")
+                    raise last_error
+
+        # This should not be reached, but just in case
+        if last_error:
+            raise last_error
+        raise DownloadError("Download failed for unknown reason")
 
     def _log_progress_checkpoint(self, value: int, unit: str):
         """Helper method to log progress checkpoints"""
