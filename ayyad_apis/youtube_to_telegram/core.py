@@ -256,7 +256,7 @@ class YouTubeAPI:
                     if 'channel_name' in uploader_data:
                         uploader_data['name'] = uploader_data.pop('channel_name')
                     if 'channel_url' in uploader_data:
-                        uploader_data['url'] = uploader_data.pop('channel_url')
+                        uploader_data['link'] = uploader_data.pop('channel_url')
                     telegram_data['uploader'] = Channel(**uploader_data)
                 parsed_data['telegram'] = TelegramResponse(**telegram_data)
 
@@ -294,7 +294,7 @@ class YouTubeAPI:
             if 'channel_name' in uploader_data:
                 uploader_data['name'] = uploader_data.pop('channel_name')
             if 'channel_url' in uploader_data:
-                uploader_data['url'] = uploader_data.pop('channel_url')
+                uploader_data['link'] = uploader_data.pop('channel_url')
             parsed_data['uploader'] = Channel(**uploader_data)
 
         # Normalize tags to list
