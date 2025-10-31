@@ -1,3 +1,9 @@
+"""
+Ayyad APIs - Collection of Python wrappers for various APIs
+"""
+
+__version__ = "0.1.6"
+
 # Expose main APIs at the package root
 from .porn_detection import (
     PornDetectionAPI,
@@ -38,6 +44,8 @@ from .youtube_suggest import (
 )
 
 __all__ = [
+    "__version__",
+
     # Porn Detection
     "PornDetectionAPI",
     "PornDetectionError",
