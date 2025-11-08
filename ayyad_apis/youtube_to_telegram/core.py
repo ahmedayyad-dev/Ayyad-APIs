@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import asyncio
 import aiohttp
 
@@ -37,6 +38,14 @@ class Channel:
     id: str = None
     thumbnails: List[dict] = None
     link: str = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
 
 @dataclass
@@ -74,6 +83,14 @@ class Video:
             return f"{self.view_count / 1_000:.1f}K"
         return str(self.view_count)
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 @dataclass
 class VideoInfoResponse:
@@ -96,6 +113,14 @@ class VideoInfoResponse:
     webpage_url_domain: str = None
     formats: List[dict] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 @dataclass
 class TelegramResponse(Video):
@@ -117,11 +142,27 @@ class DownloadResult:
     file_path: str
     file_size: int
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 @dataclass
 class LiveStream:
     """Represents a live stream (HLS/MP4)"""
     url: str
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
 
 @dataclass

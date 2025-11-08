@@ -1,8 +1,8 @@
 import logging
 import json
 import re
-from dataclasses import dataclass
-from typing import Optional, List, Union
+from dataclasses import dataclass, asdict
+from typing import Optional, List, Union, Dict, Any
 
 import aiohttp
 
@@ -54,6 +54,39 @@ class SuggestionResult:
     def has_suggestions(self) -> bool:
         """Check if any suggestions were found"""
         return self.count > 0
+
+    def to_dict(self, include_raw: bool = False) -> Dict[str, Any]:
+        """
+        Convert to dictionary.
+
+        Args:
+            include_raw: If True, includes raw_response
+
+        Returns:
+            Dictionary representation
+        """
+        data = {
+            "query": self.query,
+            "suggestions": self.suggestions,
+            "success": self.success,
+            "count": self.count
+        }
+        if include_raw:
+            data["raw_response"] = self.raw_response
+        return data
+
+    def to_json(self, indent: Optional[int] = None, include_raw: bool = False) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+            include_raw: If True, includes raw_response
+
+        Returns:
+            JSON string representation
+        """
+        return json.dumps(self.to_dict(include_raw=include_raw), indent=indent, ensure_ascii=False)
 
 
 # ==================== API Client ====================
