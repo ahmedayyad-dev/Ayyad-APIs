@@ -14,6 +14,9 @@ from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 import aiohttp
 
+# Import shared download function
+from ..utils import download_file
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -128,6 +131,49 @@ class Format:
         """Check if this format is audio only (no video)."""
         return self.is_audio() and not self.is_video()
 
+    async def download(
+        self,
+        output_path: Optional[Union[str, Path]] = None,
+        return_bytes: bool = False
+    ) -> Union[bytes, str, None]:
+        """
+        Download this format's media file.
+
+        Args:
+            output_path: Path to save the file. If None, auto-generates filename.
+            return_bytes: If True, returns bytes instead of saving to file.
+
+        Returns:
+            - bytes if return_bytes=True
+            - str (file path) if saved to disk
+            - None if download fails
+
+        Example:
+            best_format = video_info.get_best_format()
+            path = await best_format.download("my_video.mp4")
+        """
+        if not self.url:
+            logger.error("No download URL available")
+            return None
+
+        # Determine default filename and extension
+        if self.is_video():
+            default_filename = f"video_{self.format_id}"
+        elif self.is_audio():
+            default_filename = f"audio_{self.format_id}"
+        else:
+            default_filename = f"media_{self.format_id}"
+
+        default_ext = f".{self.ext}" if self.ext else ".bin"
+
+        return await download_file(
+            url=self.url,
+            output_path=output_path,
+            return_bytes=return_bytes,
+            default_filename=default_filename,
+            default_ext=default_ext
+        )
+
 
 @dataclass
 class Subtitle:
@@ -155,6 +201,48 @@ class Subtitle:
             "ext": self.ext,
             "language": self.language
         }
+
+    async def download(
+        self,
+        output_path: Optional[Union[str, Path]] = None,
+        return_bytes: bool = False
+    ) -> Union[bytes, str, None]:
+        """
+        Download this subtitle file.
+
+        Args:
+            output_path: Path to save the file. If None, auto-generates from name and language.
+            return_bytes: If True, returns bytes instead of saving to file.
+
+        Returns:
+            - bytes if return_bytes=True
+            - str (file path) if saved to disk
+            - None if download fails
+
+        Example:
+            subtitle = video_info.get_subtitles_by_language("en")[0]
+            path = await subtitle.download("subtitles.srt")
+        """
+        if not self.url:
+            logger.error("No subtitle URL available")
+            return None
+
+        # Generate filename from language and name
+        if output_path is None and not return_bytes:
+            safe_name = "".join(c for c in self.name if c.isalnum() or c in (' ', '-', '_'))
+            safe_name = safe_name.strip()[:30] or 'subtitle'
+            lang_prefix = f"{self.language}_" if self.language else ""
+            output_path = f"{lang_prefix}{safe_name}"
+
+        default_ext = f".{self.ext}" if self.ext else ".srt"
+
+        return await download_file(
+            url=self.url,
+            output_path=output_path,
+            return_bytes=return_bytes,
+            default_filename="subtitle",
+            default_ext=default_ext
+        )
 
 
 @dataclass
@@ -189,6 +277,46 @@ class Thumbnail:
             "resolution": self.resolution,
             "preference": self.preference
         }
+
+    async def download(
+        self,
+        output_path: Optional[Union[str, Path]] = None,
+        return_bytes: bool = False
+    ) -> Union[bytes, str, None]:
+        """
+        Download this thumbnail image.
+
+        Args:
+            output_path: Path to save the file. If None, auto-generates from resolution.
+            return_bytes: If True, returns bytes instead of saving to file.
+
+        Returns:
+            - bytes if return_bytes=True
+            - str (file path) if saved to disk
+            - None if download fails
+
+        Example:
+            best_thumb = video_info.get_best_thumbnail()
+            path = await best_thumb.download("thumbnail.jpg")
+        """
+        if not self.url:
+            logger.error("No thumbnail URL available")
+            return None
+
+        # Generate filename from resolution or id
+        if output_path is None and not return_bytes:
+            if self.resolution:
+                output_path = f"thumbnail_{self.resolution}"
+            elif self.id:
+                output_path = f"thumbnail_{self.id}"
+
+        return await download_file(
+            url=self.url,
+            output_path=output_path,
+            return_bytes=return_bytes,
+            default_filename="thumbnail",
+            default_ext=".jpg"
+        )
 
 
 @dataclass
@@ -418,6 +546,53 @@ class VideoInfo:
             List of Subtitle objects for that language
         """
         return self.subtitles.get(language, [])
+
+    async def download(
+        self,
+        output_path: Optional[Union[str, Path]] = None,
+        return_bytes: bool = False,
+        prefer_quality: str = "best",
+        format_type: str = "combined"
+    ) -> Union[bytes, str, None]:
+        """
+        Download the video using the best available format.
+
+        Args:
+            output_path: Path to save the file. If None, generates from title.
+            return_bytes: If True, returns bytes instead of saving to file.
+            prefer_quality: "best" or "worst" quality
+            format_type: "combined" (video+audio), "video", or "audio"
+
+        Returns:
+            - bytes if return_bytes=True
+            - str (file path) if saved to disk
+            - None if download fails
+
+        Example:
+            video_info = await client.get_info("https://youtube.com/watch?v=...")
+            # Download best quality
+            path = await video_info.download("my_video.mp4")
+            # Download audio only
+            path = await video_info.download("audio.mp3", format_type="audio")
+        """
+        # Get best format based on preferences
+        best_format = self.get_best_format(prefer_quality=prefer_quality, format_type=format_type)
+
+        if not best_format:
+            logger.error("No suitable format found for download")
+            return None
+
+        # Generate filename from title if no output_path provided
+        if output_path is None and not return_bytes:
+            safe_title = "".join(c for c in self.title if c.isalnum() or c in (' ', '-', '_'))
+            safe_title = safe_title.strip()[:50] or 'video'
+            output_path = safe_title
+
+        # Use the format's download method
+        return await best_format.download(
+            output_path=output_path,
+            return_bytes=return_bytes
+        )
 
 
 # ==================== AllTube API Client ====================
