@@ -2,7 +2,10 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.1.7"
+__version__ = "0.1.9"
+
+# Import shared utilities
+from .utils import download_file
 
 # Expose main APIs at the package root
 from .porn_detection import (
@@ -44,7 +47,6 @@ from .youtube_suggest import (
 )
 
 from .pinterest import (
-    download_file,
     PinterestAPI,
     PinterestAPIError,
     PinterestAuthenticationError,
@@ -56,8 +58,22 @@ from .pinterest import (
     VideoDownloadResult,
 )
 
+from .alltube_extractor import (
+    AllTubeAPI,
+    AllTubeError,
+    AllTubeAuthenticationError,
+    AllTubeRequestError,
+    AllTubeInvalidURLError,
+    VideoInfo,
+    Format,
+    Subtitle,
+)
+
 __all__ = [
     "__version__",
+
+    # Shared Utilities
+    "download_file",
 
     # Porn Detection
     "PornDetectionAPI",
@@ -95,7 +111,6 @@ __all__ = [
     "SuggestionResult",
 
     # Pinterest
-    "download_file",
     "PinterestAPI",
     "PinterestAPIError",
     "PinterestAuthenticationError",
@@ -105,4 +120,14 @@ __all__ = [
     "Thumbnail",
     "ImageDownloadResult",
     "VideoDownloadResult",
+
+    # AllTube CDN Extractor
+    "AllTubeAPI",
+    "AllTubeError",
+    "AllTubeAuthenticationError",
+    "AllTubeRequestError",
+    "AllTubeInvalidURLError",
+    "VideoInfo",
+    "Format",
+    "Subtitle",
 ]

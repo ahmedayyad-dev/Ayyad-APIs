@@ -12,86 +12,13 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 import aiohttp
-import aiofiles
+
+# Import shared download function
+from ..utils import download_file
 
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-
-# ==================== Utility Functions ====================
-
-async def download_file(
-    url: str,
-    output_path: Optional[Union[str, Path]] = None,
-    return_bytes: bool = False,
-    default_filename: str = "download",
-    default_ext: str = ".bin"
-) -> Union[bytes, str, None]:
-    """
-    Download a file from URL - utility function for the entire library.
-
-    Args:
-        url: URL to download from
-        output_path: Path to save the file. If None, uses default_filename + extension from URL
-        return_bytes: If True, returns bytes instead of saving to file
-        default_filename: Default filename if can't determine from URL
-        default_ext: Default extension if can't determine from URL
-
-    Returns:
-        - bytes if return_bytes=True
-        - str (file path) if saved to disk
-        - None if download fails
-
-    Example:
-        # Download to specific path
-        path = await download_file("https://example.com/image.jpg", "my_image.jpg")
-
-        # Get as bytes
-        data = await download_file("https://example.com/image.jpg", return_bytes=True)
-
-        # Auto-generate filename
-        path = await download_file("https://example.com/image.jpg")
-    """
-    if not url:
-        logger.error("No URL provided")
-        return None
-
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url) as response:
-                if response.status != 200:
-                    logger.error(f"Failed to download: HTTP {response.status}")
-                    return None
-
-                content = await response.read()
-
-                if return_bytes:
-                    return content
-
-                # Determine output path
-                if output_path is None:
-                    # Try to extract extension from URL
-                    ext = default_ext
-                    if "." in url:
-                        url_ext = url.split(".")[-1].split("?")[0]
-                        if url_ext and len(url_ext) <= 5:  # Reasonable extension length
-                            ext = f".{url_ext}"
-
-                    output_path = f"{default_filename}{ext}"
-
-                output_path = Path(output_path)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                async with aiofiles.open(output_path, "wb") as f:
-                    await f.write(content)
-
-                logger.info(f"File saved to: {output_path}")
-                return str(output_path)
-
-    except Exception as e:
-        logger.error(f"Download failed: {str(e)}")
-        return None
 
 
 # ==================== Custom Exceptions ====================
@@ -158,7 +85,9 @@ class ImageDownloadResult:
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        return_bytes: bool = False
+        return_bytes: bool = False,
+        show_progress: bool = False,
+        max_retries: int = 3
     ) -> Union[bytes, str, None]:
         """
         Download the actual image file - shortcut to download_file().
@@ -166,6 +95,8 @@ class ImageDownloadResult:
         Args:
             output_path: Path to save the file. If None, generates from title.
             return_bytes: If True, returns bytes instead of saving to file.
+            show_progress: Show download progress in console (default: False)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -192,7 +123,9 @@ class ImageDownloadResult:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="pinterest_image",
-            default_ext=".jpg"
+            default_ext=".jpg",
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
 
@@ -243,7 +176,9 @@ class VideoDownloadResult:
         output_path: Optional[Union[str, Path]] = None,
         return_bytes: bool = False,
         download_thumbnails: bool = False,
-        thumbnails_dir: Optional[Union[str, Path]] = None
+        thumbnails_dir: Optional[Union[str, Path]] = None,
+        show_progress: bool = True,
+        max_retries: int = 3
     ) -> Union[bytes, str, Dict[str, Any], None]:
         """
         Download the actual video file - shortcut to download_file().
@@ -253,6 +188,8 @@ class VideoDownloadResult:
             return_bytes: If True, returns bytes instead of saving to file.
             download_thumbnails: If True, also downloads all thumbnails.
             thumbnails_dir: Directory to save thumbnails (default: same as video).
+            show_progress: Show download progress in console (default: True)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -280,7 +217,9 @@ class VideoDownloadResult:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="pinterest_video",
-            default_ext=".mp4"
+            default_ext=".mp4",
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
         if video_path is None:
