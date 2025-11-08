@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.1.8"
+__version__ = "0.1.9"
 
 # Import shared utilities
 from .utils import download_file

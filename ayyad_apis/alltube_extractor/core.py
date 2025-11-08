@@ -134,7 +134,10 @@ class Format:
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        return_bytes: bool = False
+        return_bytes: bool = False,
+        show_progress: bool = False,
+        max_retries: int = 3,
+        retry_delay: float = 2.0
     ) -> Union[bytes, str, None]:
         """
         Download this format's media file.
@@ -142,6 +145,9 @@ class Format:
         Args:
             output_path: Path to save the file. If None, auto-generates filename.
             return_bytes: If True, returns bytes instead of saving to file.
+            show_progress: Show download progress in console (default: False)
+            max_retries: Maximum retry attempts (default: 3)
+            retry_delay: Delay between retries in seconds (default: 2.0)
 
         Returns:
             - bytes if return_bytes=True
@@ -150,7 +156,11 @@ class Format:
 
         Example:
             best_format = video_info.get_best_format()
+            # Simple download
             path = await best_format.download("my_video.mp4")
+
+            # Download with progress tracking
+            path = await best_format.download("video.mp4", show_progress=True)
         """
         if not self.url:
             logger.error("No download URL available")
@@ -171,7 +181,10 @@ class Format:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename=default_filename,
-            default_ext=default_ext
+            default_ext=default_ext,
+            show_progress=show_progress,
+            max_retries=max_retries,
+            retry_delay=retry_delay
         )
 
 
@@ -205,7 +218,9 @@ class Subtitle:
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        return_bytes: bool = False
+        return_bytes: bool = False,
+        show_progress: bool = False,
+        max_retries: int = 3
     ) -> Union[bytes, str, None]:
         """
         Download this subtitle file.
@@ -213,6 +228,8 @@ class Subtitle:
         Args:
             output_path: Path to save the file. If None, auto-generates from name and language.
             return_bytes: If True, returns bytes instead of saving to file.
+            show_progress: Show download progress in console (default: False)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -241,7 +258,9 @@ class Subtitle:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="subtitle",
-            default_ext=default_ext
+            default_ext=default_ext,
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
 
@@ -281,7 +300,9 @@ class Thumbnail:
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        return_bytes: bool = False
+        return_bytes: bool = False,
+        show_progress: bool = False,
+        max_retries: int = 3
     ) -> Union[bytes, str, None]:
         """
         Download this thumbnail image.
@@ -289,6 +310,8 @@ class Thumbnail:
         Args:
             output_path: Path to save the file. If None, auto-generates from resolution.
             return_bytes: If True, returns bytes instead of saving to file.
+            show_progress: Show download progress in console (default: False)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -315,7 +338,9 @@ class Thumbnail:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="thumbnail",
-            default_ext=".jpg"
+            default_ext=".jpg",
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
 
@@ -552,7 +577,10 @@ class VideoInfo:
         output_path: Optional[Union[str, Path]] = None,
         return_bytes: bool = False,
         prefer_quality: str = "best",
-        format_type: str = "combined"
+        format_type: str = "combined",
+        show_progress: bool = True,
+        max_retries: int = 3,
+        retry_delay: float = 2.0
     ) -> Union[bytes, str, None]:
         """
         Download the video using the best available format.
@@ -562,6 +590,9 @@ class VideoInfo:
             return_bytes: If True, returns bytes instead of saving to file.
             prefer_quality: "best" or "worst" quality
             format_type: "combined" (video+audio), "video", or "audio"
+            show_progress: Show download progress in console (default: True for videos)
+            max_retries: Maximum retry attempts (default: 3)
+            retry_delay: Delay between retries in seconds (default: 2.0)
 
         Returns:
             - bytes if return_bytes=True
@@ -570,10 +601,14 @@ class VideoInfo:
 
         Example:
             video_info = await client.get_info("https://youtube.com/watch?v=...")
-            # Download best quality
+            # Download best quality with progress
             path = await video_info.download("my_video.mp4")
+
             # Download audio only
             path = await video_info.download("audio.mp3", format_type="audio")
+
+            # Download without progress
+            path = await video_info.download("video.mp4", show_progress=False)
         """
         # Get best format based on preferences
         best_format = self.get_best_format(prefer_quality=prefer_quality, format_type=format_type)
@@ -591,7 +626,10 @@ class VideoInfo:
         # Use the format's download method
         return await best_format.download(
             output_path=output_path,
-            return_bytes=return_bytes
+            return_bytes=return_bytes,
+            show_progress=show_progress,
+            max_retries=max_retries,
+            retry_delay=retry_delay
         )
 
 

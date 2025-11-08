@@ -85,7 +85,9 @@ class ImageDownloadResult:
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
-        return_bytes: bool = False
+        return_bytes: bool = False,
+        show_progress: bool = False,
+        max_retries: int = 3
     ) -> Union[bytes, str, None]:
         """
         Download the actual image file - shortcut to download_file().
@@ -93,6 +95,8 @@ class ImageDownloadResult:
         Args:
             output_path: Path to save the file. If None, generates from title.
             return_bytes: If True, returns bytes instead of saving to file.
+            show_progress: Show download progress in console (default: False)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -119,7 +123,9 @@ class ImageDownloadResult:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="pinterest_image",
-            default_ext=".jpg"
+            default_ext=".jpg",
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
 
@@ -170,7 +176,9 @@ class VideoDownloadResult:
         output_path: Optional[Union[str, Path]] = None,
         return_bytes: bool = False,
         download_thumbnails: bool = False,
-        thumbnails_dir: Optional[Union[str, Path]] = None
+        thumbnails_dir: Optional[Union[str, Path]] = None,
+        show_progress: bool = True,
+        max_retries: int = 3
     ) -> Union[bytes, str, Dict[str, Any], None]:
         """
         Download the actual video file - shortcut to download_file().
@@ -180,6 +188,8 @@ class VideoDownloadResult:
             return_bytes: If True, returns bytes instead of saving to file.
             download_thumbnails: If True, also downloads all thumbnails.
             thumbnails_dir: Directory to save thumbnails (default: same as video).
+            show_progress: Show download progress in console (default: True)
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
             - bytes if return_bytes=True
@@ -207,7 +217,9 @@ class VideoDownloadResult:
             output_path=output_path,
             return_bytes=return_bytes,
             default_filename="pinterest_video",
-            default_ext=".mp4"
+            default_ext=".mp4",
+            show_progress=show_progress,
+            max_retries=max_retries
         )
 
         if video_path is None:
