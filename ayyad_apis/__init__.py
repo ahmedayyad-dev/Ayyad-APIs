@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.1.6"
+__version__ = "0.1.7"
 
 # Expose main APIs at the package root
 from .porn_detection import (
@@ -43,6 +43,19 @@ from .youtube_suggest import (
     SuggestionResult,
 )
 
+from .pinterest import (
+    download_file,
+    PinterestAPI,
+    PinterestAPIError,
+    PinterestAuthenticationError,
+    PinterestDownloadError,
+    PinterestInvalidURLError,
+    PinterestRequestError,
+    Thumbnail,
+    ImageDownloadResult,
+    VideoDownloadResult,
+)
+
 __all__ = [
     "__version__",
 
@@ -80,4 +93,16 @@ __all__ = [
     "SuggestAPIResponseError",
     "ProcessingError",
     "SuggestionResult",
+
+    # Pinterest
+    "download_file",
+    "PinterestAPI",
+    "PinterestAPIError",
+    "PinterestAuthenticationError",
+    "PinterestDownloadError",
+    "PinterestInvalidURLError",
+    "PinterestRequestError",
+    "Thumbnail",
+    "ImageDownloadResult",
+    "VideoDownloadResult",
 ]
