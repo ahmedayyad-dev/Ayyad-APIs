@@ -1,5 +1,6 @@
 import logging
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, Dict, Any
 
@@ -60,6 +61,14 @@ class VideoAnalysisConfig:
             "smooth_window": str(self.smooth_window)
         }
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 # ==================== Image Detection Result ====================
 
@@ -98,6 +107,22 @@ class ImageDetectionResult:
         else:
             return "Low Risk"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "label": self.label,
+            "nsfw_prob": self.nsfw_prob,
+            "threshold": self.threshold,
+            "success": self.success,
+            "is_nsfw": self.is_nsfw,
+            "confidence_percentage": self.confidence_percentage,
+            "safety_level": self.safety_level
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 # ==================== Video Thresholds ====================
 
@@ -108,6 +133,14 @@ class VideoThresholds:
     thresh_low: float = 0.7
     min_hit_duration: float = 1.0
     min_ratio: float = 0.02
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
 
 # ==================== Video Statistics ====================
@@ -161,6 +194,23 @@ class VideoStats:
         secs = int(seconds % 60)
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        data = asdict(self)
+        data.update({
+            "max_prob_percentage": self.max_prob_percentage,
+            "avg_prob_percentage": self.avg_prob_percentage,
+            "ratio_above_percentage": self.ratio_above_percentage,
+            "total_duration_formatted": self.total_duration_formatted,
+            "total_above_duration_formatted": self.total_above_duration_formatted,
+            "max_streak_formatted": self.max_streak_formatted
+        })
+        return data
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 # ==================== Video Detection Result ====================
 
@@ -195,6 +245,22 @@ class VideoDetectionResult:
         else:
             return "Low Risk"
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "nsfw": self.nsfw,
+            "reason": self.reason,
+            "thresholds": self.thresholds.to_dict() if self.thresholds else None,
+            "stats": self.stats.to_dict() if self.stats else None,
+            "success": self.success,
+            "is_nsfw": self.is_nsfw,
+            "safety_level": self.safety_level
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 # ==================== Upload URL Information ====================
 
@@ -208,6 +274,14 @@ class UploadUrl:
         """Extract key from the URL"""
         if "key=" in self.url:
             self.key = self.url.split("key=")[1].split("&")[0]
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return asdict(self)
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
 
 # ==================== API Client ====================

@@ -9,6 +9,7 @@ Author: Ahmed Ayyad
 """
 
 import logging
+import json
 from dataclasses import dataclass, field
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
@@ -115,6 +116,22 @@ class Format:
             "protocol": self.protocol
         }
 
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+
+        Example:
+            format_obj = Format(...)
+            json_str = format_obj.to_json(indent=2)
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
     def is_video(self) -> bool:
         """Check if this format contains video."""
         return self.vcodec and self.vcodec != "none"
@@ -215,6 +232,22 @@ class Subtitle:
             "language": self.language
         }
 
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+
+        Example:
+            subtitle = Subtitle(...)
+            json_str = subtitle.to_json(indent=2)
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
     async def download(
         self,
         output_path: Optional[Union[str, Path]] = None,
@@ -296,6 +329,22 @@ class Thumbnail:
             "resolution": self.resolution,
             "preference": self.preference
         }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+
+        Example:
+            thumbnail = Thumbnail(...)
+            json_str = thumbnail.to_json(indent=2)
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     async def download(
         self,
@@ -488,6 +537,30 @@ class VideoInfo:
             "tags": self.tags,
             "is_live": self.is_live
         }
+
+    def to_json(self, indent: Optional[int] = None, include_raw: bool = False) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+            include_raw: If True, includes raw_data from API response
+
+        Returns:
+            JSON string representation
+
+        Example:
+            video_info = await client.get_info("...")
+            # Pretty-printed JSON
+            json_str = video_info.to_json(indent=2)
+            # Compact JSON
+            json_str = video_info.to_json()
+            # Include raw API data
+            json_str = video_info.to_json(indent=2, include_raw=True)
+        """
+        if include_raw:
+            return json.dumps(self.raw_data, indent=indent, ensure_ascii=False)
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     def get_best_format(
         self,

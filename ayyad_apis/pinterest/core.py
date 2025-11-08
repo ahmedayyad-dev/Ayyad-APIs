@@ -8,6 +8,7 @@ Author: Ahmed Ayyad
 """
 
 import logging
+import json
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
@@ -66,6 +67,26 @@ class Thumbnail:
             height=data.get("height", 0)
         )
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary."""
+        return {
+            "url": self.url,
+            "width": self.width,
+            "height": self.height
+        }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
 
 @dataclass
 class ImageDownloadResult:
@@ -81,6 +102,18 @@ class ImageDownloadResult:
             "download_url": self.download_url,
             "title": self.title
         }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     async def download(
         self,
@@ -148,6 +181,18 @@ class VideoDownloadResult:
                 for t in self.thumbnails
             ]
         }
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """
+        Convert to JSON string.
+
+        Args:
+            indent: Number of spaces for indentation (None for compact JSON)
+
+        Returns:
+            JSON string representation
+        """
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     def get_thumbnail_by_size(self, min_width: int = 0, min_height: int = 0) -> Optional[Thumbnail]:
         """
