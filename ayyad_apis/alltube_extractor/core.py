@@ -7,11 +7,16 @@ from various video platforms (YouTube, Facebook, Instagram, TikTok, etc.).
 
 Author: Ahmed Ayyad
 """
-
+import json
 import logging
 from typing import Optional, Dict, Any
 import aiohttp
 
+try:
+    from yt_dlp import YoutubeDL
+    yt_dlp_installed = True
+except ImportError as e:
+    yt_dlp_installed = False
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -118,7 +123,7 @@ class AllTubeAPI:
             "x-rapidapi-key": self.api_key
         }
 
-    async def get_info(self, url: str) -> Dict[str, Any]:
+    async def get_info(self, url: str, yt_dlp_opts={}) -> Dict[str, Any]:
         """
         Extract video information from a URL.
 
@@ -161,7 +166,10 @@ class AllTubeAPI:
 
         endpoint = f"{self.BASE_URL}/getInfo"
         headers = self._get_headers()
-        params = {"url": url}
+        params = {
+            "url": url,
+            'yt_dlp_opts': json.dumps(yt_dlp_opts, indent=2, ensure_ascii=False)
+        }
 
         try:
             async with self._session.get(endpoint, headers=headers, params=params) as response:
@@ -194,6 +202,50 @@ class AllTubeAPI:
             raise AllTubeRequestError(f"Network error: {str(e)}")
         except (AllTubeAuthenticationError, AllTubeRequestError):
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error: {str(e)}")
-            raise AllTubeError(f"Failed to extract video info: {str(e)}")
+
+    async def yt_dlp_download(self, url: str, yt_dlp_format: str = "bestvideo+bestaudio",
+                              yt_dlp_outtmpl: str = "%(title)s.%(ext)s") -> Dict[str, Any]:
+        """
+        Download video using yt-dlp
+
+        Args:
+            url: Video URL
+            yt_dlp_format: Format string (default: "bestvideo+bestaudio")
+            yt_dlp_outtmpl: Output template (default: "%(title)s.%(ext)s")
+
+        Returns:
+            Dictionary containing:
+            - filepath: Downloaded file path
+            - info: Video information
+
+        Raises:
+            Exception: If yt-dlp is not installed
+            AllTubeError: If download fails
+        """
+        if not yt_dlp_installed:
+            raise Exception("yt_dlp is not installed. Install it with: pip install yt-dlp")
+        if not self._session:
+            raise AllTubeError("Session not initialized. Use async context manager.")
+
+        # Build yt_dlp options
+        yt_dlp_opts = {
+            'format': yt_dlp_format,
+            'outtmpl': yt_dlp_outtmpl
+        }
+
+        # Get video info from API
+        data = await self.get_info(url, yt_dlp_opts)
+
+        with YoutubeDL(yt_dlp_opts) as ydl:
+            # Download the video
+            ydl.process_info(data)
+
+            # Get the actual filepath
+            filepath = ydl.prepare_filename(data)
+
+            logger.info(f"Video downloaded successfully: {filepath}")
+
+            return {
+                'filepath': filepath,
+                'info': data
+            }

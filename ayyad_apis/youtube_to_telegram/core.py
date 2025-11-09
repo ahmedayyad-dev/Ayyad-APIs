@@ -420,8 +420,6 @@ class YouTubeAPI:
 
         except APIResponseError:
             raise
-        except Exception as e:
-            raise APIResponseError(f"Connection error: {str(e)}")
 
     async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
@@ -503,7 +501,6 @@ class YouTubeAPI:
     def _extract_error_message(self, error_text: str) -> str:
         """Extract error message from API error response"""
         try:
-            import json
             error_data = json.loads(error_text)
             if isinstance(error_data, dict):
                 if "message" in error_data:

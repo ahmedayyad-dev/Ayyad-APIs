@@ -459,9 +459,6 @@ class PinterestAPI:
 
         except (PinterestAuthenticationError, PinterestRequestError):
             raise
-        except Exception as e:
-            logger.error(f"Image download failed: {str(e)}")
-            raise PinterestDownloadError(f"Failed to download image: {str(e)}")
 
     async def video(self, url: str) -> VideoDownloadResult:
         """
@@ -509,9 +506,6 @@ class PinterestAPI:
 
         except (PinterestAuthenticationError, PinterestRequestError):
             raise
-        except Exception as e:
-            logger.error(f"Video download failed: {str(e)}")
-            raise PinterestDownloadError(f"Failed to download video: {str(e)}")
 
     async def download(self, url: str, media_type: str = "auto") -> Union[ImageDownloadResult, VideoDownloadResult]:
         """

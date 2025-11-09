@@ -391,8 +391,6 @@ class PornDetectionAPI:
 
         except APIResponseError:
             raise
-        except Exception as e:
-            raise APIResponseError(f"Request failed: {str(e)}")
 
     async def _request_post_multipart(self, url: str, file_path: str, params: Dict[str, str] = None) -> Dict[str, Any]:
         """Send POST request with file upload"""
@@ -424,8 +422,6 @@ class PornDetectionAPI:
 
         except (UploadError, APIResponseError):
             raise
-        except Exception as e:
-            raise UploadError(f"Upload request failed: {str(e)}")
 
     async def _request_post_internal(self, endpoint: str, file_path: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Send POST request to internal endpoints"""
@@ -458,8 +454,6 @@ class PornDetectionAPI:
 
         except APIResponseError:
             raise
-        except Exception as e:
-            raise APIResponseError(f"Request failed: {str(e)}")
 
     # -------------------- Image Detection --------------------
 

@@ -154,8 +154,6 @@ class YouTubeSuggestAPI:
             raise ProcessingError(f"Failed to parse JSON: {str(e)}")
         except (IndexError, KeyError) as e:
             raise ProcessingError(f"Unexpected response structure: {str(e)}")
-        except Exception as e:
-            raise ProcessingError(f"Unknown processing error: {str(e)}")
 
     # -------------------- Request Handler --------------------
 
@@ -186,8 +184,6 @@ class YouTubeSuggestAPI:
 
         except APIResponseError:
             raise
-        except Exception as e:
-            raise APIResponseError(f"Request failed: {str(e)}")
 
     # -------------------- Public Methods --------------------
 
