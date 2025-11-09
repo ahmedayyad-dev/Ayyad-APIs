@@ -203,14 +203,14 @@ class AllTubeAPI:
         except (AllTubeAuthenticationError, AllTubeRequestError):
             raise
 
-    async def yt_dlp_download(self, url: str, yt_dlp_format: str = "bestvideo+bestaudio",
+    async def yt_dlp_download(self, url: str, yt_dlp_format: str = "best",
                               yt_dlp_outtmpl: str = "%(title)s.%(ext)s") -> Dict[str, Any]:
         """
         Download video using yt-dlp
 
         Args:
             url: Video URL
-            yt_dlp_format: Format string (default: "bestvideo+bestaudio")
+            yt_dlp_format: Format string (default: "best")
             yt_dlp_outtmpl: Output template (default: "%(title)s.%(ext)s")
 
         Returns:
