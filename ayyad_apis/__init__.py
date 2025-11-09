@@ -64,9 +64,6 @@ from .alltube_extractor import (
     AllTubeAuthenticationError,
     AllTubeRequestError,
     AllTubeInvalidURLError,
-    VideoInfo,
-    Format,
-    Subtitle,
 )
 
 __all__ = [
@@ -127,7 +124,4 @@ __all__ = [
     "AllTubeAuthenticationError",
     "AllTubeRequestError",
     "AllTubeInvalidURLError",
-    "VideoInfo",
-    "Format",
-    "Subtitle",
 ]
