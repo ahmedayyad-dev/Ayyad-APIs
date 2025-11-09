@@ -204,7 +204,7 @@ class AllTubeAPI:
             raise
 
     async def yt_dlp_download(self, url: str, yt_dlp_format: str = "best",
-                              yt_dlp_outtmpl: str = "%(title)s.%(ext)s") -> Dict[str, Any]:
+                              yt_dlp_outtmpl: str = "%(title)s.%(ext)s",download=True) -> Dict[str, Any]:
         """
         Download video using yt-dlp
 
@@ -238,7 +238,8 @@ class AllTubeAPI:
 
         with YoutubeDL(yt_dlp_opts) as ydl:
             # Download the video
-            ydl.process_info(data)
+            if download:
+                ydl.process_info(data)
 
             # Get the actual filepath
             filepath = ydl.prepare_filename(data)
