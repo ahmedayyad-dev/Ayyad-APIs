@@ -156,8 +156,8 @@ class AllTubeAPI:
         if not url or not isinstance(url, str):
             raise AllTubeInvalidURLError("URL must be a non-empty string")
 
-        if not url.startswith(("http://", "https://")):
-            raise AllTubeInvalidURLError("URL must start with http:// or https://")
+        # if not url.startswith(("http://", "https://")):
+        #     raise AllTubeInvalidURLError("URL must start with http:// or https://")
 
         logger.info(f"Extracting video info from: {url}")
 
