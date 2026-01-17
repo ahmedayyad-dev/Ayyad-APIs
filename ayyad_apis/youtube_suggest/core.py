@@ -4,35 +4,43 @@ import re
 from dataclasses import dataclass, asdict
 from typing import Optional, List, Union, Dict, Any
 
-import aiohttp
+# Import base classes and utilities
+from ..utils import (
+    BaseRapidAPI,
+    BaseResponse,
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    APIConfig,
+    with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ==================== Custom Exceptions ====================
+# ==================== Exception Aliases (Backward Compatibility) ====================
 
-class SuggestError(Exception):
+# Create aliases for backward compatibility
+class SuggestError(APIError):
     """Error raised when suggestion request fails"""
-
     def __init__(self, reason: str):
-        self.reason = reason
         super().__init__(f"Suggestion failed: {reason}")
-
-
-class APIResponseError(Exception):
-    """Error raised when the API does not return a 200 response or provides an error message"""
-
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(f"API Error: {message}")
-
-
-class ProcessingError(Exception):
-    """Error raised when response processing fails"""
-
-    def __init__(self, reason: str):
         self.reason = reason
+
+
+class APIResponseError(RequestError):
+    """Error raised when the API does not return a 200 response or provides an error message"""
+    def __init__(self, message: str):
+        super().__init__(f"API Error: {message}")
+        self.message = message
+
+
+class ProcessingError(RequestError):
+    """Error raised when response processing fails"""
+    def __init__(self, reason: str):
         super().__init__(f"Processing failed: {reason}")
+        self.reason = reason
 
 
 # ==================== Data Models ====================
@@ -91,29 +99,31 @@ class SuggestionResult:
 
 # ==================== API Client ====================
 
-class YouTubeSuggestAPI:
-    """API wrapper for YouTube search suggestions"""
+class YouTubeSuggestAPI(BaseRapidAPI):
+    """
+    API wrapper for YouTube search suggestions.
 
-    def __init__(self, api_key: str, timeout: int = 30):
-        self.api_key = api_key
-        self._base_url = "https://youtube-suggest-api.p.rapidapi.com"
-        self._headers = {
-            "x-rapidapi-key": self.api_key,
-            "x-rapidapi-host": "youtube-suggest-api.p.rapidapi.com"
-        }
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._timeout = aiohttp.ClientTimeout(total=timeout)
+    Inherits from BaseRapidAPI for common functionality including:
+    - Session management
+    - Header creation
+    - Response validation
+    - Error handling
 
-    async def __aenter__(self):
-        self._session = aiohttp.ClientSession(
-            headers=self._headers,
-            timeout=self._timeout
-        )
-        return self
+    Example:
+        async with YouTubeSuggestAPI(api_key="key") as client:
+            result = await client.get_suggestions("python programming")
+            print(result.suggestions)
 
-    async def __aexit__(self, exc_type, exc, tb):
-        if self._session:
-            await self._session.close()
+            # Use with config
+            config = APIConfig(api_key="key", max_retries=5)
+            async with YouTubeSuggestAPI(config=config) as client:
+                result = await client.get_suggestions("query")
+    """
+
+    BASE_URL = "https://youtube-suggest-api.p.rapidapi.com"
+    DEFAULT_HOST = "youtube-suggest-api.p.rapidapi.com"
+
+    # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
     # -------------------- Response Processing --------------------
 
@@ -171,19 +181,38 @@ class YouTubeSuggestAPI:
         Raises:
             APIResponseError: If request fails
         """
-        url = f"{self._base_url}/{endpoint}"
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url = f"{self.BASE_URL}/{endpoint}"
+        headers = self._get_headers()
         logger.info(f"GET {url} with params: {params}")
 
         try:
-            async with self._session.get(url, params=params) as response:
+            async with self._session.get(url, headers=headers, params=params) as response:
+                if response.status == 401 or response.status == 403:
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
+
                 if response.status != 200:
                     error_text = await response.text()
-                    raise APIResponseError(f"HTTP {response.status}: {error_text}")
+                    raise RequestError(
+                        f"Request failed",
+                        status_code=response.status,
+                        response_text=error_text,
+                        endpoint=endpoint
+                    )
 
                 return await response.text()
 
-        except APIResponseError:
+        except (AuthenticationError, RequestError):
             raise
+        except Exception as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(f"Network error: {str(e)}", endpoint=endpoint, original_error=e)
 
     # -------------------- Public Methods --------------------
 

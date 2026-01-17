@@ -5,7 +5,27 @@ Ayyad APIs - Collection of Python wrappers for various APIs
 __version__ = "0.2.0"
 
 # Import shared utilities
-from .utils import download_file
+from .utils import (
+    download_file,
+    create_rapidapi_headers,
+    validate_rapidapi_response,
+    # Base classes
+    BaseResponse,
+    BaseRapidAPI,
+    # Exception hierarchy
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    DownloadError,
+    # Configuration
+    APIConfig,
+    # Progress tracking
+    ProgressTracker,
+    ProgressInfo,
+    # Decorators
+    with_retry,
+)
 
 # Expose main APIs at the package root
 from .porn_detection import (
@@ -29,13 +49,10 @@ from .youtube_to_telegram import (
     Video,
     VideoInfoResponse,
     TelegramResponse,
-    TelegramInfoResponse,
     DownloadResult,
     LiveStream,
     ServerDownloadField,
     ServerResponse,
-    HostDownloadField,
-    HostResponse,
 )
 
 from .youtube_suggest import (
@@ -54,8 +71,12 @@ from .pinterest import (
     PinterestInvalidURLError,
     PinterestRequestError,
     Thumbnail,
+    ImageMetadata,
     ImageDownloadResult,
     VideoDownloadResult,
+    BoardDownloadResult,
+    BatchDownloadResult,
+    ProfileDownloadResult,
 )
 
 from .alltube_extractor import (
@@ -66,11 +87,54 @@ from .alltube_extractor import (
     AllTubeInvalidURLError,
 )
 
+from .toxicity_detector import (
+    ToxicityDetectorAPI,
+    ToxicityDetectorError,
+    ToxicityAuthenticationError,
+    ToxicityRequestError,
+    ToxicityInvalidInputError,
+    BlockedWord,
+    TextAnalysisResult,
+    AudioAnalysisResult,
+)
+
+from .translator import (
+    TranslatorAPI,
+    TranslatorError,
+    TranslatorAuthenticationError,
+    TranslatorRequestError,
+    TranslatorInvalidInputError,
+    TranslationResult,
+)
+
 __all__ = [
     "__version__",
 
     # Shared Utilities
     "download_file",
+    "create_rapidapi_headers",
+    "validate_rapidapi_response",
+
+    # Base Classes
+    "BaseResponse",
+    "BaseRapidAPI",
+
+    # Exception Hierarchy
+    "APIError",
+    "AuthenticationError",
+    "RequestError",
+    "InvalidInputError",
+    "DownloadError",
+
+    # Configuration
+    "APIConfig",
+
+    # Progress Tracking
+    "ProgressTracker",
+    "ProgressInfo",
+
+    # Decorators
+    "with_retry",
 
     # Porn Detection
     "PornDetectionAPI",
@@ -92,13 +156,10 @@ __all__ = [
     "Video",
     "VideoInfoResponse",
     "TelegramResponse",
-    "TelegramInfoResponse",
     "DownloadResult",
     "LiveStream",
     "ServerDownloadField",
     "ServerResponse",
-    "HostDownloadField",
-    "HostResponse",
 
     # YouTube Suggest
     "YouTubeSuggestAPI",
@@ -115,8 +176,12 @@ __all__ = [
     "PinterestInvalidURLError",
     "PinterestRequestError",
     "Thumbnail",
+    "ImageMetadata",
     "ImageDownloadResult",
     "VideoDownloadResult",
+    "BoardDownloadResult",
+    "BatchDownloadResult",
+    "ProfileDownloadResult",
 
     # AllTube CDN Extractor
     "AllTubeAPI",
@@ -124,4 +189,22 @@ __all__ = [
     "AllTubeAuthenticationError",
     "AllTubeRequestError",
     "AllTubeInvalidURLError",
+
+    # Toxicity Detector
+    "ToxicityDetectorAPI",
+    "ToxicityDetectorError",
+    "ToxicityAuthenticationError",
+    "ToxicityRequestError",
+    "ToxicityInvalidInputError",
+    "BlockedWord",
+    "TextAnalysisResult",
+    "AudioAnalysisResult",
+
+    # AI Translator
+    "TranslatorAPI",
+    "TranslatorError",
+    "TranslatorAuthenticationError",
+    "TranslatorRequestError",
+    "TranslatorInvalidInputError",
+    "TranslationResult",
 ]

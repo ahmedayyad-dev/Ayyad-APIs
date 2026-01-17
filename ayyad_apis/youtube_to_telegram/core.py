@@ -2,54 +2,59 @@ from __future__ import annotations
 
 import logging
 import json
+import aiohttp
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 import asyncio
-import aiohttp
+
+# Import base classes and utilities
+from ..utils import (
+    BaseRapidAPI,
+    BaseResponse,
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    DownloadError as BaseDownloadError,
+    APIConfig,
+    with_retry,
+)
 
 logger = logging.getLogger(__name__)
 
 
-# ==================== Custom Exceptions ====================
+# ==================== Exception Aliases (Backward Compatibility) ====================
 
-class DownloadError(Exception):
+class DownloadError(BaseDownloadError):
     """Error when download fails"""
-
     def __init__(self, reason: str):
-        self.reason = reason
         super().__init__(f"Download failed: {reason}")
+        self.reason = reason
 
 
-class APIResponseError(Exception):
+class APIResponseError(RequestError):
     """Error when API doesn't return 200 status or returns an error message"""
-
     def __init__(self, message: str):
-        self.message = message
         super().__init__(f"API Error: {message}")
+        self.message = message
 
 
 # ==================== Data Models ====================
 
 @dataclass
-class Channel:
+class Channel(BaseResponse):
     """Channel information"""
     name: str = None
     id: str = None
     thumbnails: List[dict] = None
     link: str = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
-class Video:
+class Video(BaseResponse):
     """Base video object shared across multiple responses"""
     success: bool = False
     video_title: str = None
@@ -83,17 +88,11 @@ class Video:
             return f"{self.view_count / 1_000:.1f}K"
         return str(self.view_count)
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
-class VideoInfoResponse:
+class VideoInfoResponse(BaseResponse):
     """Detailed response for /video-info endpoint"""
     success: bool = False
     title: str = None
@@ -113,13 +112,7 @@ class VideoInfoResponse:
     webpage_url_domain: str = None
     formats: List[dict] = None
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
@@ -130,49 +123,33 @@ class TelegramResponse(Video):
     chat_username: str = None
 
 
-@dataclass
-class TelegramInfoResponse(Video):
-    """Response for YouTube video with Telegram info"""
-    telegram: Optional[TelegramResponse] = None
 
 
 @dataclass
-class DownloadResult:
+class DownloadResult(BaseResponse):
     """Represents result of a local file download"""
     file_path: str
     file_size: int
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
-class LiveStream:
+class LiveStream(BaseResponse):
     """Represents a live stream (HLS/MP4)"""
     url: str
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
-class ServerDownloadField:
+class ServerDownloadField(BaseResponse):
     """Download field returned in youtube_to_server endpoint"""
     download_url: str
 
 
 @dataclass
-class Thumbnail:
+class Thumbnail(BaseResponse):
     """Thumbnail information"""
     url: str = None
     width: int = None
@@ -180,21 +157,21 @@ class Thumbnail:
 
 
 @dataclass
-class ViewCount:
+class ViewCount(BaseResponse):
     """View count information"""
     text: str = None
     short: str = None
 
 
 @dataclass
-class Accessibility:
+class Accessibility(BaseResponse):
     """Accessibility information"""
     title: str = None
     duration: str = None
 
 
 @dataclass
-class VideoSearchResult:
+class VideoSearchResult(BaseResponse):
     """Single video result"""
     type: str = None
     id: str = None
@@ -230,57 +207,45 @@ class ServerResponse(Video):
         return await self._api_instance.download_file(self.download.download_url, file_path, retries, delay)
 
 
-@dataclass
-class HostDownloadField:
-    """Download field returned in youtube_to_host endpoint"""
-    download_url: str
-
-
-@dataclass
-class HostResponse(Video):
-    """Response for /youtube_to_host"""
-    hosting: HostDownloadField = None
-    _api_instance: Optional[YouTubeAPI] = None
-
-    async def download_file(self, file_path: str, max_retries: Optional[int] = None,
-                            retry_delay: Optional[float] = None) -> DownloadResult:
-        if not self._api_instance:
-            raise DownloadError("API instance not available")
-        logger.info(f"Downloading file to {file_path} from hosting...")
-
-        # Use instance defaults if not specified
-        retries = max_retries if max_retries is not None else self._api_instance._max_retries
-        delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
-
-        return await self._api_instance.download_file(self.hosting.download_url, file_path, retries, delay)
 
 
 # ==================== API Client ====================
 
-class YouTubeAPI:
-    """API client wrapper for YouTube to Telegram/Server/Host endpoints"""
+class YouTubeAPI(BaseRapidAPI):
+    """
+    API client wrapper for YouTube to Telegram/Server/Host endpoints.
+
+    Inherits from BaseRapidAPI for common functionality including:
+    - Session management
+    - Header creation
+    - Response validation
+    - Error handling
+
+    Example:
+        async with YouTubeAPI(api_key="key") as client:
+            result = await client.youtube_to_telegram("https://youtube.com/watch?v=...")
+            print(result.video_title)
+
+            # Use with config
+            config = APIConfig(api_key="key", timeout=300, max_retries=5)
+            async with YouTubeAPI(config=config) as client:
+                result = await client.youtube_to_telegram("url")
+    """
+
+    BASE_URL = "https://youtube-to-telegram-uploader-api.p.rapidapi.com"
+    DEFAULT_HOST = "youtube-to-telegram-uploader-api.p.rapidapi.com"
 
     def __init__(self, api_key: str, timeout: int = 300, max_retries: int = 5, retry_delay: float = 1.0,
-                 max_wait_time: int = 0):
-        self.api_key = api_key
-        self._base_url = "https://youtube-to-telegram-uploader-api.p.rapidapi.com"
-        self._headers = {
-            "x-rapidapi-key": self.api_key,
-            "x-rapidapi-host": "youtube-to-telegram-uploader-api.p.rapidapi.com"
-        }
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._timeout = timeout
+                 max_wait_time: int = 0, config: Optional[APIConfig] = None):
+        # Call parent __init__
+        super().__init__(api_key=api_key, timeout=timeout, config=config)
+
+        # Store additional YouTube-specific config
         self._max_retries = max_retries
         self._retry_delay = retry_delay
         self._max_wait_time = max_wait_time
 
-    async def __aenter__(self):
-        self._session = aiohttp.ClientSession(headers=self._headers)
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        if self._session:
-            await self._session.close()
+    # __aenter__ and __aexit__ inherited from BaseRapidAPI
 
     def _parse_response_data(self, data: dict, response_class):
         """Helper to convert API response into dataclass objects"""
@@ -288,27 +253,9 @@ class YouTubeAPI:
         parsed_data = data.copy()  # Copy to avoid mutating original data
 
         # Handle nested objects depending on response class
-        if response_class == TelegramInfoResponse:
-            if 'telegram' in parsed_data and isinstance(parsed_data['telegram'], dict):
-                telegram_data = parsed_data['telegram'].copy()
-                # Handle uploader mapping inside telegram response
-                if 'uploader' in telegram_data and isinstance(telegram_data['uploader'], dict):
-                    uploader_data = telegram_data['uploader'].copy()
-                    if 'channel_name' in uploader_data:
-                        uploader_data['name'] = uploader_data.pop('channel_name')
-                    if 'channel_url' in uploader_data:
-                        uploader_data['link'] = uploader_data.pop('channel_url')
-                    telegram_data['uploader'] = Channel(**uploader_data)
-                parsed_data['telegram'] = TelegramResponse(**telegram_data)
-
-        elif response_class == ServerResponse:
+        if response_class == ServerResponse:
             if 'download' in parsed_data and isinstance(parsed_data['download'], dict):
                 parsed_data['download'] = ServerDownloadField(**parsed_data['download'])
-            parsed_data['_api_instance'] = self
-
-        elif response_class == HostResponse:
-            if 'hosting' in parsed_data and isinstance(parsed_data['hosting'], dict):
-                parsed_data['hosting'] = HostDownloadField(**parsed_data['hosting'])
             parsed_data['_api_instance'] = self
 
         elif response_class == TelegramResponse:
@@ -374,22 +321,41 @@ class YouTubeAPI:
             return response_class(**safe_data)
 
     async def _request(self, endpoint: str, params: dict) -> dict:
-        """Make an API request with error handling"""
-        url = f"{self._base_url}/{endpoint}"
+        """Make an API request with error handling and try_after support"""
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url = f"{self.BASE_URL}/{endpoint}"
+        headers = self._get_headers()
         logger.info(f"Requesting: {url} with params: {params}")
 
         try:
-            async with self._session.get(url, params=params) as response:
+            async with self._session.get(url, headers=headers, params=params) as response:
+                if response.status in (401, 403):
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
+
                 if response.status != 200:
                     error_text = await response.text()
                     clean_message = self._extract_error_message(error_text)
-                    raise APIResponseError(clean_message)
+                    raise RequestError(
+                        clean_message,
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
 
                 try:
                     data = await response.json()
-                except (aiohttp.ContentTypeError, ValueError):
+                except Exception:
                     text_response = await response.text()
-                    raise APIResponseError(text_response or "Empty response from API")
+                    raise RequestError(
+                        text_response or "Empty response from API",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
 
                 # Check if response is a dict before accessing dict methods
                 if isinstance(data, dict):
@@ -398,28 +364,46 @@ class YouTubeAPI:
                     if try_after is not None:
                         if try_after > self._max_wait_time:
                             error_msg = data.get("message", f"Download delay required: {try_after} seconds")
-                            raise APIResponseError(error_msg)
+                            raise RequestError(
+                                error_msg,
+                                status_code=response.status,
+                                endpoint=endpoint
+                            )
 
                         logger.info(f"Waiting {try_after} seconds before retry...")
                         await asyncio.sleep(try_after)
 
                         logger.info(f"Retrying request after waiting...")
-                        async with self._session.get(url, params=params) as retry_response:
+                        async with self._session.get(url, headers=headers, params=params) as retry_response:
                             if retry_response.status != 200:
                                 error_text = await retry_response.text()
                                 clean_message = self._extract_error_message(error_text)
-                                raise APIResponseError(clean_message)
+                                raise RequestError(
+                                    clean_message,
+                                    status_code=retry_response.status,
+                                    endpoint=endpoint
+                                )
 
                             data = await retry_response.json()
 
                     if data.get("success", False) is False:
                         error_msg = data.get("message") or data.get("messages", "Unknown error")
-                        raise APIResponseError(error_msg)
+                        raise RequestError(
+                            error_msg,
+                            endpoint=endpoint
+                        )
 
                 return data
 
-        except APIResponseError:
+        except (AuthenticationError, RequestError):
             raise
+        except Exception as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(
+                f"Network error: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )
 
     async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
@@ -513,36 +497,37 @@ class YouTubeAPI:
 
     # ==================== Public Methods ====================
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def video_info(self, url: str) -> VideoInfoResponse:
         """Get detailed video info from YouTube URL or video ID"""
         data = await self._request("video_info", {"video_url": url})
         return self._parse_response_data(data, VideoInfoResponse)
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def youtube_to_server(self, video_id: str, format: str = "audio") -> ServerResponse:
         """Get downloadable server URL for a given video"""
         data = await self._request("youtube_to_server", {"video_id": video_id, "format": format})
         return self._parse_response_data(data, ServerResponse)
 
-    async def youtube_to_host(self, video_id: str, format: str = "audio") -> HostResponse:
-        """Get hosted download URL for a given video"""
-        data = await self._request("youtube_to_host", {"video_id": video_id, "format": format})
-        return self._parse_response_data(data, HostResponse)
+    @with_retry(max_attempts=3, delay=1.0)
+    async def youtube_to_telegram(self, video_id: str, format: str = "audio") -> TelegramResponse:
+        """Upload YouTube video to Telegram"""
+        data = await self._request("youtube_to_telegram", {"video_id": video_id, "format": format})
+        return self._parse_response_data(data, TelegramResponse)
 
-    async def youtube_to_telegram(self, video_id: str, format: str = "audio", mode: str = "telegram") -> TelegramInfoResponse:
-        """Upload YouTube video to Telegram or fetch Telegram+video info"""
-        data = await self._request("youtube_to_telegram", {"video_id": video_id, "format": format, "mode": mode})
-        return self._parse_response_data(data, TelegramInfoResponse)
-
+    @with_retry(max_attempts=3, delay=1.0)
     async def youtube_live_hls(self, video_id: str) -> LiveStream:
         """Get HLS live stream URL for a YouTube Live"""
         data = await self._request("youtube_live_hls", {"video_id": video_id})
         return LiveStream(url=data.get("url"))
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def youtube_live_mp4(self, video_id: str) -> LiveStream:
         """Get MP4 live stream URL for a YouTube Live"""
         data = await self._request("youtube_live_mp4", {"video_id": video_id})
         return LiveStream(url=data.get("url"))
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def search(self, query: str, limit: int = 5) -> List[VideoSearchResult]:
         """Search on YouTube for a given query"""
         data = await self._request("search", {"query": query, "limit": limit})
@@ -552,6 +537,7 @@ class YouTubeAPI:
                 results.append(self._parse_response_data(item, VideoSearchResult))
         return results
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def youtube_video_stream(self, video_id: str, format: str = "audio") -> LiveStream:
         """Get MP4 live stream URL for a YouTube video"""
         data = await self._request("youtube_video_stream", {"video_id": video_id, "format": format})

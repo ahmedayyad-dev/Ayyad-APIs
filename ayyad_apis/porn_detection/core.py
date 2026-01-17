@@ -7,39 +7,52 @@ from typing import Optional, Dict, Any
 import aiofiles
 import aiohttp
 
+# Import base classes and utilities
+from ..utils import (
+    BaseRapidAPI,
+    BaseResponse,
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    DownloadError as BaseDownloadError,
+    APIConfig,
+    with_retry,
+)
+
 logger = logging.getLogger(__name__)
 
 
-# ==================== Custom Exceptions ====================
+# ==================== Exception Aliases (Backward Compatibility) ====================
 
-class DetectionError(Exception):
+class DetectionError(APIError):
     """Error raised when detection process fails"""
 
     def __init__(self, reason: str):
-        self.reason = reason
         super().__init__(f"Detection failed: {reason}")
+        self.reason = reason
 
 
-class APIResponseError(Exception):
+class APIResponseError(RequestError):
     """Error raised when the API does not return a 200 response or provides an error message"""
 
     def __init__(self, message: str):
-        self.message = message
         super().__init__(f"API Error: {message}")
+        self.message = message
 
 
-class UploadError(Exception):
+class UploadError(RequestError):
     """Error raised when file upload fails"""
 
     def __init__(self, reason: str):
-        self.reason = reason
         super().__init__(f"Upload failed: {reason}")
+        self.reason = reason
 
 
 # ==================== Video Analysis Configuration ====================
 
 @dataclass
-class VideoAnalysisConfig:
+class VideoAnalysisConfig(BaseResponse):
     """Configuration for video analysis"""
     start_sec: float = 0.0
     duration_sec: float = 0.0  # 0.0 = analyze the entire video
@@ -61,19 +74,13 @@ class VideoAnalysisConfig:
             "smooth_window": str(self.smooth_window)
         }
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 # ==================== Image Detection Result ====================
 
 @dataclass
-class ImageDetectionResult:
+class ImageDetectionResult(BaseResponse):
     """Result of image content detection"""
     label: str = "Safe"  # "Unsafe" or "Safe"
     nsfw_prob: float = 0.0
@@ -108,7 +115,7 @@ class ImageDetectionResult:
             return "Low Risk"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to dictionary with computed properties."""
         return {
             "label": self.label,
             "nsfw_prob": self.nsfw_prob,
@@ -119,34 +126,26 @@ class ImageDetectionResult:
             "safety_level": self.safety_level
         }
 
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_json() inherited from BaseResponse
 
 
 # ==================== Video Thresholds ====================
 
 @dataclass
-class VideoThresholds:
+class VideoThresholds(BaseResponse):
     """Thresholds used in video analysis"""
     thresh_high: float = 0.8
     thresh_low: float = 0.7
     min_hit_duration: float = 1.0
     min_ratio: float = 0.02
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 # ==================== Video Statistics ====================
 
 @dataclass
-class VideoStats:
+class VideoStats(BaseResponse):
     """Detailed video analysis statistics"""
     max_prob: float = 0.0
     avg_prob: float = 0.0
@@ -195,7 +194,7 @@ class VideoStats:
         return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to dictionary with computed properties."""
         data = asdict(self)
         data.update({
             "max_prob_percentage": self.max_prob_percentage,
@@ -207,15 +206,13 @@ class VideoStats:
         })
         return data
 
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_json() inherited from BaseResponse
 
 
 # ==================== Video Detection Result ====================
 
 @dataclass
-class VideoDetectionResult:
+class VideoDetectionResult(BaseResponse):
     """Result of video content detection"""
     nsfw: bool = False
     reason: str = ""
@@ -246,7 +243,7 @@ class VideoDetectionResult:
             return "Low Risk"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
+        """Convert to dictionary with computed properties."""
         return {
             "nsfw": self.nsfw,
             "reason": self.reason,
@@ -257,15 +254,13 @@ class VideoDetectionResult:
             "safety_level": self.safety_level
         }
 
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_json() inherited from BaseResponse
 
 
 # ==================== Upload URL Information ====================
 
 @dataclass
-class UploadUrl:
+class UploadUrl(BaseResponse):
     """Video upload URL"""
     url: str
     key: str = ""
@@ -275,42 +270,45 @@ class UploadUrl:
         if "key=" in self.url:
             self.key = self.url.split("key=")[1].split("&")[0]
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return asdict(self)
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """Convert to JSON string."""
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 # ==================== API Client ====================
 
-class PornDetectionAPI:
-    """API wrapper for pornographic content detection"""
+class PornDetectionAPI(BaseRapidAPI):
+    """
+    API wrapper for pornographic content detection.
 
-    def __init__(self, api_key: str, timeout: int = 60, max_retries: int = 3, retry_delay: float = 1.0):
-        self.api_key = api_key
-        self._base_url = "https://porn-detection-api.p.rapidapi.com"
-        self._headers = {
-            "x-rapidapi-key": self.api_key,
-            "x-rapidapi-host": "porn-detection-api.p.rapidapi.com"
-        }
-        self._session: Optional[aiohttp.ClientSession] = None
-        self._timeout = aiohttp.ClientTimeout(total=timeout)
+    Inherits from BaseRapidAPI for common functionality including:
+    - Session management
+    - Header creation
+    - Response validation
+    - Error handling
+
+    Example:
+        async with PornDetectionAPI(api_key="key") as client:
+            result = await client.predict_image_url("https://example.com/image.jpg")
+            print(result.label)
+
+            # Use with config
+            config = APIConfig(api_key="key", timeout=60, max_retries=5)
+            async with PornDetectionAPI(config=config) as client:
+                result = await client.predict_image_url("url")
+    """
+
+    BASE_URL = "https://porn-detection-api.p.rapidapi.com"
+    DEFAULT_HOST = "porn-detection-api.p.rapidapi.com"
+
+    def __init__(self, api_key: str, timeout: int = 60, max_retries: int = 3, retry_delay: float = 1.0,
+                 config: Optional[APIConfig] = None):
+        # Call parent __init__
+        super().__init__(api_key=api_key, timeout=timeout, config=config)
+
+        # Store additional porn detection-specific config
         self._max_retries = max_retries
         self._retry_delay = retry_delay
 
-    async def __aenter__(self):
-        self._session = aiohttp.ClientSession(
-            headers=self._headers,
-            timeout=self._timeout
-        )
-        return self
-
-    async def __aexit__(self, exc_type, exc, tb):
-        if self._session:
-            await self._session.close()
+    # __aenter__ and __aexit__ inherited from BaseRapidAPI
 
     # -------------------- Response Parsers --------------------
 
@@ -374,30 +372,61 @@ class PornDetectionAPI:
 
     async def _request_get(self, endpoint: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Send GET request to API"""
-        url = f"{self._base_url}/{endpoint}"
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url = f"{self.BASE_URL}/{endpoint}"
+        headers = self._get_headers()
         logger.info(f"GET {url} with params: {params}")
 
         try:
-            async with self._session.get(url, params=params) as response:
+            async with self._session.get(url, headers=headers, params=params) as response:
+                if response.status in (401, 403):
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
+
                 if response.status != 200:
                     error_text = await response.text()
-                    raise APIResponseError(f"HTTP {response.status}: {error_text}")
+                    raise RequestError(
+                        f"HTTP {response.status}: {error_text}",
+                        status_code=response.status,
+                        endpoint=endpoint,
+                        response_text=error_text
+                    )
 
                 try:
                     return await response.json()
-                except Exception:
+                except Exception as e:
                     text = await response.text()
-                    raise APIResponseError(f"Invalid JSON response: {text}")
+                    raise RequestError(
+                        f"Invalid JSON response: {text}",
+                        status_code=response.status,
+                        endpoint=endpoint,
+                        original_error=e
+                    )
 
-        except APIResponseError:
+        except (AuthenticationError, RequestError):
             raise
+        except Exception as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(
+                f"Network error: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )
 
     async def _request_post_multipart(self, url: str, file_path: str, params: Dict[str, str] = None) -> Dict[str, Any]:
         """Send POST request with file upload"""
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
         logger.info(f"POST {url} - uploading file: {file_path}")
 
         if not Path(file_path).exists():
-            raise UploadError(f"File not found: {file_path}")
+            raise InvalidInputError(f"File not found: {file_path}")
 
         try:
             data = aiohttp.FormData()
@@ -409,27 +438,42 @@ class PornDetectionAPI:
                                filename=Path(file_path).name,
                                content_type='application/octet-stream')
 
-            async with self._session.post(url, data=data, params=params) as response:
+            headers = self._get_headers()
+            async with self._session.post(url, headers=headers, data=data, params=params) as response:
+                if response.status in (401, 403):
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=url
+                    )
+
                 if response.status != 200:
                     error_text = await response.text()
                     raise UploadError(f"Upload failed - HTTP {response.status}: {error_text}")
 
                 try:
                     return await response.json()
-                except Exception:
+                except Exception as e:
                     text = await response.text()
                     raise UploadError(f"Invalid JSON response after upload: {text}")
 
-        except (UploadError, APIResponseError):
+        except (AuthenticationError, UploadError):
             raise
+        except Exception as e:
+            logger.error(f"Upload error: {str(e)}")
+            raise UploadError(f"File upload failed: {str(e)}")
 
     async def _request_post_internal(self, endpoint: str, file_path: str, params: Dict[str, str]) -> Dict[str, Any]:
         """Send POST request to internal endpoints"""
-        url = f"{self._base_url}/{endpoint}"
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url = f"{self.BASE_URL}/{endpoint}"
+        headers = self._get_headers()
         logger.info(f"POST {url} - uploading file: {file_path}")
 
         if not Path(file_path).exists():
-            raise UploadError(f"File not found: {file_path}")
+            raise InvalidInputError(f"File not found: {file_path}")
 
         try:
             data = aiohttp.FormData()
@@ -441,22 +485,47 @@ class PornDetectionAPI:
                                filename=Path(file_path).name,
                                content_type='application/octet-stream')
 
-            async with self._session.post(url, data=data, params=params) as response:
+            async with self._session.post(url, headers=headers, data=data, params=params) as response:
+                if response.status in (401, 403):
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
+
                 if response.status != 200:
                     error_text = await response.text()
-                    raise APIResponseError(f"HTTP {response.status}: {error_text}")
+                    raise RequestError(
+                        f"HTTP {response.status}: {error_text}",
+                        status_code=response.status,
+                        endpoint=endpoint,
+                        response_text=error_text
+                    )
 
                 try:
                     return await response.json()
-                except Exception:
+                except Exception as e:
                     text = await response.text()
-                    raise APIResponseError(f"Invalid JSON response: {text}")
+                    raise RequestError(
+                        f"Invalid JSON response: {text}",
+                        status_code=response.status,
+                        endpoint=endpoint,
+                        original_error=e
+                    )
 
-        except APIResponseError:
+        except (AuthenticationError, RequestError):
             raise
+        except Exception as e:
+            logger.error(f"Upload error: {str(e)}")
+            raise RequestError(
+                f"File upload failed: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )
 
     # -------------------- Image Detection --------------------
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def predict_image_url(self, image_url: str, threshold: float = 0.7) -> ImageDetectionResult:
         """
         Detect pornographic content from an image URL.
@@ -475,6 +544,7 @@ class PornDetectionAPI:
         data = await self._request_get("predict_image_url", params)
         return self._parse_image_response(data)
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def predict_image_upload(self, image_path: str, threshold: float = 0.7) -> ImageDetectionResult:
         """
         Detect pornographic content from a local image file.
@@ -496,6 +566,7 @@ class PornDetectionAPI:
 
     # -------------------- Video Detection --------------------
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def predict_video_url(self, video_url: str, config: VideoAnalysisConfig = None) -> VideoDetectionResult:
         """
         Detect pornographic content from a video URL.
@@ -519,6 +590,7 @@ class PornDetectionAPI:
         data = await self._request_get("predict_video_url", params)
         return self._parse_video_response(data)
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def request_video_upload_url(self, config: VideoAnalysisConfig = None) -> UploadUrl:
         """
         Request an upload URL for video analysis.
@@ -539,6 +611,7 @@ class PornDetectionAPI:
         data = await self._request_get("request_video_upload_url", params)
         return self._parse_upload_url_response(data)
 
+    @with_retry(max_attempts=2, delay=2.0)
     async def upload_video_and_analyze(self, video_path: str, config: VideoAnalysisConfig = None) -> VideoDetectionResult:
         """
         Upload a video and perform analysis.

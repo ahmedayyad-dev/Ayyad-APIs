@@ -7,13 +7,100 @@ This module provides common utility functions used across different API modules.
 import logging
 import asyncio
 from pathlib import Path
-from typing import Optional, Union, Callable
+from typing import Optional, Union, Callable, Dict, Any
 import aiohttp
 import aiofiles
 
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+# ==================== RapidAPI Helper Functions ====================
+
+def create_rapidapi_headers(
+    api_key: str,
+    rapidapi_host: str,
+    content_type: str = "application/json"
+) -> Dict[str, str]:
+    """
+    Create standard RapidAPI headers.
+
+    This is a shared utility to create consistent headers across all RapidAPI modules.
+
+    Args:
+        api_key: RapidAPI key for authentication
+        rapidapi_host: RapidAPI host (e.g., "api-name.p.rapidapi.com")
+        content_type: Content type for the request (default: "application/json")
+
+    Returns:
+        Dictionary with RapidAPI headers
+
+    Example:
+        headers = create_rapidapi_headers(
+            api_key="your_key",
+            rapidapi_host="example.p.rapidapi.com"
+        )
+    """
+    return {
+        "x-rapidapi-key": api_key,
+        "x-rapidapi-host": rapidapi_host,
+        "Content-Type": content_type
+    }
+
+
+async def validate_rapidapi_response(
+    response: aiohttp.ClientResponse,
+    auth_error_class: type,
+    request_error_class: type
+) -> Dict[str, Any]:
+    """
+    Validate RapidAPI response and handle common errors.
+
+    This is a shared utility to handle response validation consistently
+    across all RapidAPI modules.
+
+    Args:
+        response: aiohttp ClientResponse object
+        auth_error_class: Exception class to raise for authentication errors (401/403)
+        request_error_class: Exception class to raise for other request errors
+
+    Returns:
+        Parsed JSON response as dictionary
+
+    Raises:
+        auth_error_class: If authentication fails (401/403)
+        request_error_class: If request fails (other status codes)
+
+    Example:
+        async with session.get(url) as response:
+            data = await validate_rapidapi_response(
+                response,
+                MyAuthError,
+                MyRequestError
+            )
+    """
+    # Check for authentication errors
+    if response.status in (401, 403):
+        raise auth_error_class(f"Authentication failed: {response.status}")
+
+    # Check for other errors
+    if response.status != 200:
+        error_text = await response.text()
+        raise request_error_class(
+            f"Request failed with status {response.status}: {error_text}"
+        )
+
+    # Parse JSON response
+    try:
+        data = await response.json()
+        return data
+    except (aiohttp.ContentTypeError, ValueError) as e:
+        error_text = await response.text()
+        raise request_error_class(f"Invalid JSON response: {error_text}")
+
+
+# ==================== File Download Utilities ====================
 
 
 async def download_file(
@@ -215,3 +302,585 @@ async def download_file(
     # All retries failed
     logger.error(f"[Download] Failed to download from: {url}")
     return None
+
+
+# ==================== Base Classes and Utilities ====================
+
+
+class BaseResponse:
+    """
+    Base class for all API response models.
+
+    Provides automatic to_dict() and to_json() methods for dataclass instances.
+    All response models should inherit from this class.
+
+    Example:
+        @dataclass
+        class MyResult(BaseResponse):
+            value: str
+            count: int
+
+        result = MyResult(value="test", count=5)
+        print(result.to_json(indent=2))
+    """
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert dataclass to dictionary."""
+        from dataclasses import asdict, is_dataclass
+        if is_dataclass(self):
+            return asdict(self)
+        raise NotImplementedError("Subclass must be a dataclass")
+
+    def to_json(self, indent: Optional[int] = None) -> str:
+        """Convert to JSON string."""
+        import json
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+
+
+# ==================== Exception Hierarchy ====================
+
+
+class APIError(Exception):
+    """
+    Base exception for all API errors with rich context.
+
+    Provides detailed error information including:
+    - HTTP status code
+    - Response text
+    - Endpoint that failed
+    - Request parameters
+    - Retry count
+    - Original exception
+    - Timestamp
+
+    Example:
+        raise APIError(
+            "Request failed",
+            status_code=500,
+            endpoint="/api/endpoint",
+            retry_count=3
+        )
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: Optional[int] = None,
+        response_text: Optional[str] = None,
+        endpoint: Optional[str] = None,
+        request_params: Optional[Dict[str, Any]] = None,
+        retry_count: int = 0,
+        original_error: Optional[Exception] = None
+    ):
+        super().__init__(message)
+        self.message = message
+        self.status_code = status_code
+        self.response_text = response_text
+        self.endpoint = endpoint
+        self.request_params = request_params
+        self.retry_count = retry_count
+        self.original_error = original_error
+
+        import time
+        self.timestamp = time.time()
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert error to dictionary for logging/debugging."""
+        result = {
+            "error_type": self.__class__.__name__,
+            "message": self.message,
+            "timestamp": self.timestamp
+        }
+
+        if self.status_code is not None:
+            result["status_code"] = self.status_code
+        if self.endpoint:
+            result["endpoint"] = self.endpoint
+        if self.retry_count > 0:
+            result["retry_count"] = self.retry_count
+        if self.response_text:
+            result["response_text"] = self.response_text[:200]  # Truncate long responses
+
+        return result
+
+    def __str__(self) -> str:
+        """String representation with context."""
+        parts = [self.message]
+        if self.endpoint:
+            parts.append(f"endpoint={self.endpoint}")
+        if self.status_code:
+            parts.append(f"status={self.status_code}")
+        if self.retry_count > 0:
+            parts.append(f"retries={self.retry_count}")
+        return " | ".join(parts)
+
+
+class AuthenticationError(APIError):
+    """Raised when API authentication fails (401/403)."""
+    pass
+
+
+class RequestError(APIError):
+    """Raised when API request fails."""
+    pass
+
+
+class InvalidInputError(APIError):
+    """Raised when input validation fails."""
+    pass
+
+
+class DownloadError(APIError):
+    """Raised when download operation fails."""
+    pass
+
+
+# ==================== Configuration Management ====================
+
+
+from dataclasses import dataclass, field
+import os
+
+
+@dataclass
+class APIConfig:
+    """
+    Centralized configuration for API clients.
+
+    Can be loaded from environment variables or created programmatically.
+
+    Example:
+        # From environment variables
+        config = APIConfig.from_env("MYAPI")
+        # Looks for: MYAPI_KEY, MYAPI_HOST, MYAPI_TIMEOUT, etc.
+
+        # Programmatically
+        config = APIConfig(
+            api_key="your_key",
+            timeout=60,
+            max_retries=5,
+            show_progress=True
+        )
+
+        # Use with API client
+        async with MyAPI(config=config) as client:
+            result = await client.method()
+    """
+
+    # API credentials
+    api_key: Optional[str] = None
+    rapidapi_host: Optional[str] = None
+
+    # Request settings
+    timeout: int = 30
+    max_retries: int = 3
+    retry_delay: float = 2.0
+
+    # Download settings
+    default_chunk_size: int = 8192
+    show_progress: bool = False
+
+    # Rate limiting (requests per second)
+    rate_limit: Optional[float] = None
+
+    # Extra headers
+    extra_headers: Dict[str, str] = field(default_factory=dict)
+
+    @classmethod
+    def from_env(cls, prefix: str = "AYYAD_API") -> "APIConfig":
+        """
+        Create config from environment variables.
+
+        Args:
+            prefix: Environment variable prefix (default: "AYYAD_API")
+
+        Environment variables:
+            {PREFIX}_KEY: API key
+            {PREFIX}_HOST: RapidAPI host
+            {PREFIX}_TIMEOUT: Request timeout in seconds
+            {PREFIX}_MAX_RETRIES: Maximum retry attempts
+            {PREFIX}_RETRY_DELAY: Delay between retries in seconds
+            {PREFIX}_SHOW_PROGRESS: Show progress (true/false)
+
+        Example:
+            export AYYAD_API_KEY=your_key
+            export AYYAD_API_TIMEOUT=60
+            export AYYAD_API_MAX_RETRIES=5
+
+            config = APIConfig.from_env()
+        """
+        return cls(
+            api_key=os.getenv(f"{prefix}_KEY"),
+            rapidapi_host=os.getenv(f"{prefix}_HOST"),
+            timeout=int(os.getenv(f"{prefix}_TIMEOUT", "30")),
+            max_retries=int(os.getenv(f"{prefix}_MAX_RETRIES", "3")),
+            retry_delay=float(os.getenv(f"{prefix}_RETRY_DELAY", "2.0")),
+            show_progress=os.getenv(f"{prefix}_SHOW_PROGRESS", "").lower() == "true"
+        )
+
+
+# ==================== Retry Decorator ====================
+
+
+from functools import wraps
+
+
+def with_retry(
+    max_attempts: int = 3,
+    delay: float = 2.0,
+    backoff: float = 2.0,
+    exceptions: tuple = None
+):
+    """
+    Decorator for automatic retry logic with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of retry attempts (default: 3)
+        delay: Initial delay between retries in seconds (default: 2.0)
+        backoff: Multiplier for delay after each retry (default: 2.0)
+        exceptions: Tuple of exceptions to catch and retry (default: RequestError, aiohttp.ClientError)
+
+    Example:
+        @with_retry(max_attempts=5, delay=1.0, backoff=2.0)
+        async def fetch_data(self):
+            return await self._make_request("/endpoint")
+
+        # First attempt fails -> wait 1.0s -> retry
+        # Second attempt fails -> wait 2.0s -> retry
+        # Third attempt fails -> wait 4.0s -> retry
+        # etc.
+    """
+    # Default exceptions if not provided
+    if exceptions is None:
+        exceptions = (RequestError, aiohttp.ClientError)
+
+    def decorator(func: Callable):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            current_delay = delay
+            last_exception = None
+
+            for attempt in range(max_attempts):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+
+                    if attempt < max_attempts - 1:
+                        logger.warning(
+                            f"{func.__name__} failed (attempt {attempt + 1}/{max_attempts}): {str(e)}. "
+                            f"Retrying in {current_delay:.1f}s..."
+                        )
+                        await asyncio.sleep(current_delay)
+                        current_delay *= backoff
+                    else:
+                        logger.error(f"{func.__name__} failed after {max_attempts} attempts")
+
+            # Wrap the original exception in APIError with retry context
+            if isinstance(last_exception, APIError):
+                last_exception.retry_count = max_attempts - 1
+                raise last_exception
+            else:
+                raise RequestError(
+                    f"Request failed after {max_attempts} attempts",
+                    original_error=last_exception,
+                    retry_count=max_attempts - 1
+                )
+
+        return wrapper
+    return decorator
+
+
+# ==================== Progress Tracking ====================
+
+
+import time
+
+
+@dataclass
+class ProgressInfo:
+    """
+    Information about operation progress.
+
+    Attributes:
+        current: Current progress value
+        total: Total expected value
+        percentage: Percentage complete (0-100)
+        elapsed_time: Seconds elapsed since start
+        estimated_total_time: Estimated total time in seconds (if calculable)
+        eta: Estimated time remaining in seconds (if calculable)
+        speed: Items/bytes per second (if calculable)
+    """
+    current: int
+    total: int
+    percentage: float
+    elapsed_time: float
+    estimated_total_time: Optional[float] = None
+    eta: Optional[float] = None
+    speed: Optional[float] = None
+
+    def __str__(self) -> str:
+        """Human-readable progress string."""
+        if self.eta and self.eta > 0:
+            return f"{self.percentage:.1f}% ({self.current}/{self.total}) - ETA: {self.eta:.1f}s"
+        return f"{self.percentage:.1f}% ({self.current}/{self.total})"
+
+
+class ProgressTracker:
+    """
+    Tracks progress for long-running operations.
+
+    Automatically calculates:
+    - Percentage complete
+    - Elapsed time
+    - Speed (items/bytes per second)
+    - ETA (estimated time remaining)
+
+    Example:
+        def on_progress(info: ProgressInfo):
+            print(f"Progress: {info.percentage:.1f}% - ETA: {info.eta:.0f}s")
+
+        tracker = ProgressTracker(total=100, callback=on_progress)
+
+        for i in range(100):
+            # Do work...
+            tracker.update(i + 1)
+
+        tracker.complete()
+    """
+
+    def __init__(
+        self,
+        total: int,
+        callback: Optional[Callable[[ProgressInfo], None]] = None,
+        update_interval: float = 0.5
+    ):
+        """
+        Initialize progress tracker.
+
+        Args:
+            total: Total number of items/bytes expected
+            callback: Function to call with ProgressInfo on updates
+            update_interval: Minimum seconds between callbacks (default: 0.5)
+        """
+        self.total = total
+        self.callback = callback
+        self.update_interval = update_interval
+
+        self.current = 0
+        self.start_time = time.time()
+        self.last_update_time = 0.0
+
+    def update(self, current: int, force: bool = False):
+        """
+        Update progress.
+
+        Args:
+            current: Current progress value
+            force: Force callback even if update_interval hasn't elapsed
+        """
+        self.current = current
+
+        now = time.time()
+        if not force and (now - self.last_update_time) < self.update_interval:
+            return
+
+        self.last_update_time = now
+
+        if self.callback:
+            info = self.get_progress_info()
+            self.callback(info)
+
+    def get_progress_info(self) -> ProgressInfo:
+        """Get current progress information."""
+        elapsed = time.time() - self.start_time
+        percentage = (self.current / self.total * 100) if self.total > 0 else 0
+
+        # Calculate speed and ETA
+        speed = self.current / elapsed if elapsed > 0 else 0
+        remaining = self.total - self.current
+        eta = remaining / speed if speed > 0 else None
+        estimated_total = elapsed + eta if eta else None
+
+        return ProgressInfo(
+            current=self.current,
+            total=self.total,
+            percentage=percentage,
+            elapsed_time=elapsed,
+            estimated_total_time=estimated_total,
+            eta=eta,
+            speed=speed
+        )
+
+    def complete(self):
+        """Mark operation as complete and trigger final callback."""
+        self.update(self.total, force=True)
+
+
+# ==================== Base API Client ====================
+
+
+from abc import ABC
+
+
+class BaseRapidAPI(ABC):
+    """
+    Abstract base class for all RapidAPI clients.
+
+    Provides common functionality:
+    - Session management (__aenter__, __aexit__)
+    - Header creation (_get_headers)
+    - Response validation (uses validate_rapidapi_response)
+    - Error handling (raises AuthenticationError, RequestError)
+    - Configuration support (APIConfig)
+
+    Subclasses must define:
+    - BASE_URL: str - Base URL for the API
+    - DEFAULT_HOST: str - Default RapidAPI host
+
+    Example:
+        class MyAPI(BaseRapidAPI):
+            BASE_URL = "https://my-api.p.rapidapi.com"
+            DEFAULT_HOST = "my-api.p.rapidapi.com"
+
+            async def get_data(self, param: str):
+                data = await self._make_request("GET", "/endpoint", params={"q": param})
+                return MyResult.from_dict(data)
+    """
+
+    # Subclasses must define these
+    BASE_URL: str
+    DEFAULT_HOST: str
+
+    def __init__(
+        self,
+        api_key: str,
+        rapidapi_host: Optional[str] = None,
+        timeout: int = 30,
+        config: Optional[APIConfig] = None
+    ):
+        """
+        Initialize API client.
+
+        Args:
+            api_key: RapidAPI key for authentication
+            rapidapi_host: RapidAPI host (uses DEFAULT_HOST if not provided)
+            timeout: Request timeout in seconds (default: 30)
+            config: Optional APIConfig instance (overrides individual params)
+
+        Example:
+            # Simple initialization
+            client = MyAPI(api_key="your_key")
+
+            # With config
+            config = APIConfig(api_key="your_key", max_retries=5)
+            client = MyAPI(config=config)
+        """
+        if config:
+            self.api_key = config.api_key or api_key
+            self.rapidapi_host = config.rapidapi_host or rapidapi_host or self.DEFAULT_HOST
+            self.timeout = aiohttp.ClientTimeout(total=config.timeout)
+            self.config = config
+        else:
+            self.api_key = api_key
+            self.rapidapi_host = rapidapi_host or self.DEFAULT_HOST
+            self.timeout = aiohttp.ClientTimeout(total=timeout)
+            self.config = APIConfig(
+                api_key=api_key,
+                rapidapi_host=self.rapidapi_host,
+                timeout=timeout
+            )
+
+        self._session: Optional[aiohttp.ClientSession] = None
+        logger.info(f"{self.__class__.__name__} initialized")
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        self._session = aiohttp.ClientSession(timeout=self.timeout)
+        logger.debug("HTTP session created")
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        if self._session:
+            await self._session.close()
+            logger.debug("HTTP session closed")
+        return False
+
+    def _get_headers(self, content_type: str = "application/json") -> Dict[str, str]:
+        """
+        Get request headers with authentication.
+
+        Args:
+            content_type: Content-Type header value (default: "application/json")
+
+        Returns:
+            Dictionary with RapidAPI headers + any extra headers from config
+        """
+        headers = create_rapidapi_headers(
+            api_key=self.api_key,
+            rapidapi_host=self.rapidapi_host,
+            content_type=content_type
+        )
+
+        # Add any extra headers from config
+        if self.config and self.config.extra_headers:
+            headers.update(self.config.extra_headers)
+
+        return headers
+
+    async def _make_request(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Make HTTP request with validation.
+
+        Args:
+            method: HTTP method (GET, POST, PUT, DELETE, PATCH)
+            endpoint: API endpoint path (e.g., "/analyze")
+            **kwargs: Additional arguments for aiohttp request (params, json, data, etc.)
+
+        Returns:
+            JSON response as dictionary
+
+        Raises:
+            APIError: If session not initialized
+            AuthenticationError: If authentication fails (401/403)
+            RequestError: If request fails
+
+        Example:
+            # GET request
+            data = await self._make_request("GET", "/endpoint", params={"q": "value"})
+
+            # POST request
+            data = await self._make_request("POST", "/endpoint", json={"key": "value"})
+        """
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url = f"{self.BASE_URL}{endpoint}"
+
+        # Add headers if not provided
+        if 'headers' not in kwargs:
+            kwargs['headers'] = self._get_headers()
+
+        logger.debug(f"Making {method} request to {endpoint}")
+
+        try:
+            async with self._session.request(method, url, **kwargs) as response:
+                return await validate_rapidapi_response(
+                    response,
+                    AuthenticationError,
+                    RequestError
+                )
+        except aiohttp.ClientError as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(
+                f"Network error: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )

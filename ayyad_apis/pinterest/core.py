@@ -8,51 +8,42 @@ Author: Ahmed Ayyad
 """
 
 import logging
-import json
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
-import aiohttp
 
-# Import shared download function
-from ..utils import download_file
-
+# Import shared utilities and base classes
+from ..utils import (
+    download_file,
+    BaseRapidAPI,
+    BaseResponse,
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    DownloadError,
+    APIConfig,
+    with_retry,
+)
 
 # Configure logging
 logger = logging.getLogger(__name__)
 
 
-# ==================== Custom Exceptions ====================
+# ==================== Exception Aliases (Backward Compatibility) ====================
 
-class PinterestAPIError(Exception):
-    """Base exception for Pinterest API errors."""
-    pass
-
-
-class PinterestAuthenticationError(PinterestAPIError):
-    """Raised when API authentication fails."""
-    pass
-
-
-class PinterestDownloadError(PinterestAPIError):
-    """Raised when download operation fails."""
-    pass
-
-
-class PinterestInvalidURLError(PinterestAPIError):
-    """Raised when Pinterest URL is invalid or malformed."""
-    pass
-
-
-class PinterestRequestError(PinterestAPIError):
-    """Raised when API request fails."""
-    pass
+# Create aliases for backward compatibility
+PinterestAPIError = APIError
+PinterestAuthenticationError = AuthenticationError
+PinterestDownloadError = DownloadError
+PinterestInvalidURLError = InvalidInputError
+PinterestRequestError = RequestError
 
 
 # ==================== Data Models ====================
 
 @dataclass
-class Thumbnail:
+class Thumbnail(BaseResponse):
     """Represents a video thumbnail with dimensions."""
     url: str
     width: int
@@ -67,53 +58,30 @@ class Thumbnail:
             height=data.get("height", 0)
         )
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "url": self.url,
-            "width": self.width,
-            "height": self.height
-        }
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """
-        Convert to JSON string.
-
-        Args:
-            indent: Number of spaces for indentation (None for compact JSON)
-
-        Returns:
-            JSON string representation
-        """
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 @dataclass
-class ImageDownloadResult:
+class ImageMetadata(BaseResponse):
+    """Image metadata (dimensions, size, format)."""
+    width: Optional[int] = None
+    height: Optional[int] = None
+    file_size: Optional[int] = None
+    format: Optional[str] = None
+
+    # to_dict() and to_json() inherited from BaseResponse
+
+
+@dataclass
+class ImageDownloadResult(BaseResponse):
     """Result from image download operation."""
     success: bool
     download_url: str
     title: str
+    metadata: Optional[ImageMetadata] = None
+    cached: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "success": self.success,
-            "download_url": self.download_url,
-            "title": self.title
-        }
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """
-        Convert to JSON string.
-
-        Args:
-            indent: Number of spaces for indentation (None for compact JSON)
-
-        Returns:
-            JSON string representation
-        """
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
     async def download(
         self,
@@ -163,36 +131,14 @@ class ImageDownloadResult:
 
 
 @dataclass
-class VideoDownloadResult:
+class VideoDownloadResult(BaseResponse):
     """Result from video download operation."""
     success: bool
     download_url: str
     title: str
     thumbnails: List[Thumbnail]
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "success": self.success,
-            "download_url": self.download_url,
-            "title": self.title,
-            "thumbnails": [
-                {"url": t.url, "width": t.width, "height": t.height}
-                for t in self.thumbnails
-            ]
-        }
-
-    def to_json(self, indent: Optional[int] = None) -> str:
-        """
-        Convert to JSON string.
-
-        Args:
-            indent: Number of spaces for indentation (None for compact JSON)
-
-        Returns:
-            JSON string representation
-        """
-        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
     def get_thumbnail_by_size(self, min_width: int = 0, min_height: int = 0) -> Optional[Thumbnail]:
         """
@@ -302,11 +248,57 @@ class VideoDownloadResult:
         return video_path
 
 
+@dataclass
+class BoardDownloadResult(BaseResponse):
+    """Result from board download operation."""
+    success: bool
+    board_name: str
+    total_images: int
+    images: List[Dict[str, Any]]
+    requests_used: int = 1
+    zip_url: Optional[str] = None
+
+    # to_dict() and to_json() inherited from BaseResponse
+
+
+@dataclass
+class BatchDownloadResult(BaseResponse):
+    """Result from batch download operation."""
+    success: bool
+    total_requested: int
+    total_downloaded: int
+    failed: int
+    images: List[Dict[str, Any]]
+    requests_used: int = 1
+    zip_url: Optional[str] = None
+
+    # to_dict() and to_json() inherited from BaseResponse
+
+
+@dataclass
+class ProfileDownloadResult(BaseResponse):
+    """Result from profile download operation."""
+    success: bool
+    username: str
+    total_pins: int
+    images: List[Dict[str, Any]]
+    requests_used: int = 1
+    zip_url: Optional[str] = None
+
+    # to_dict() and to_json() inherited from BaseResponse
+
+
 # ==================== Pinterest API Client ====================
 
-class PinterestAPI:
+class PinterestAPI(BaseRapidAPI):
     """
     Async client for Pinterest API via RapidAPI.
+
+    Inherits from BaseRapidAPI for common functionality including:
+    - Session management
+    - Header creation
+    - Response validation
+    - Error handling
 
     Example:
         async with PinterestAPI(api_key="your_key") as client:
@@ -323,142 +315,85 @@ class PinterestAPI:
             # Download video with thumbnails
             paths = await vid_result.download(download_thumbnails=True)
             print(paths)  # {"video": "...", "thumbnails": [...]}
+
+            # Use with config
+            config = APIConfig(api_key="key", max_retries=5)
+            async with PinterestAPI(config=config) as client:
+                result = await client.image("url")
     """
 
     BASE_URL = "https://pinterest-api4.p.rapidapi.com"
     DEFAULT_HOST = "pinterest-api4.p.rapidapi.com"
 
-    def __init__(
+    # __init__, __aenter__, __aexit__, _get_headers, _make_request inherited from BaseRapidAPI
+
+    async def image(
         self,
-        api_key: str,
-        rapidapi_host: Optional[str] = None,
-        timeout: int = 30
-    ):
-        """
-        Initialize Pinterest API client.
-
-        Args:
-            api_key: RapidAPI key for authentication
-            rapidapi_host: RapidAPI host (defaults to pinterest-api4.p.rapidapi.com)
-            timeout: Request timeout in seconds (default: 30)
-        """
-        self.api_key = api_key
-        self.rapidapi_host = rapidapi_host or self.DEFAULT_HOST
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
-        self._session: Optional[aiohttp.ClientSession] = None
-
-        logger.info("Pinterest API client initialized")
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._session = aiohttp.ClientSession(timeout=self.timeout)
-        logger.debug("HTTP session created")
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            logger.debug("HTTP session closed")
-        return False
-
-    def _get_headers(self) -> Dict[str, str]:
-        """Get request headers with authentication."""
-        return {
-            "x-rapidapi-host": self.rapidapi_host,
-            "x-rapidapi-key": self.api_key
-        }
-
-    async def _make_request(
-        self,
-        endpoint: str,
-        params: Optional[Dict[str, str]] = None
-    ) -> Dict[str, Any]:
-        """
-        Make an async GET request to the API.
-
-        Args:
-            endpoint: API endpoint path
-            params: Query parameters
-
-        Returns:
-            JSON response as dictionary
-
-        Raises:
-            PinterestAuthenticationError: If authentication fails
-            PinterestRequestError: If request fails
-        """
-        if not self._session:
-            raise PinterestAPIError("Session not initialized. Use async context manager.")
-
-        url = f"{self.BASE_URL}{endpoint}"
-        headers = self._get_headers()
-
-        logger.debug(f"Making request to {endpoint} with params {params}")
-
-        try:
-            async with self._session.get(url, headers=headers, params=params) as response:
-                # Check for authentication errors
-                if response.status == 401 or response.status == 403:
-                    raise PinterestAuthenticationError(
-                        f"Authentication failed: {response.status}"
-                    )
-
-                # Check for other errors
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise PinterestRequestError(
-                        f"Request failed with status {response.status}: {error_text}"
-                    )
-
-                data = await response.json()
-                logger.debug(f"Request successful: {endpoint}")
-                return data
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Request error: {str(e)}")
-            raise PinterestRequestError(f"Network error: {str(e)}")
-
-    async def image(self, url: str) -> ImageDownloadResult:
+        url: str,
+        quality: str = "original",
+        format: Optional[str] = None,
+        width: Optional[int] = None,
+        height: Optional[int] = None
+    ) -> ImageDownloadResult:
         """
         Download an image from Pinterest.
 
         Args:
             url: Pinterest pin URL (e.g., https://www.pinterest.com/pin/12345/)
+            quality: Image quality - 'original', 'high', 'medium', 'low' (default: 'original')
+            format: Output format - 'jpeg', 'png', 'webp' (optional)
+            width: Resize width (maintains aspect ratio, optional)
+            height: Resize height (maintains aspect ratio, optional)
 
         Returns:
-            ImageDownloadResult with download URL and title
+            ImageDownloadResult with download URL, title, and metadata
 
         Raises:
             PinterestInvalidURLError: If URL is invalid
             PinterestDownloadError: If download fails
         """
         if not url or not isinstance(url, str):
-            raise PinterestInvalidURLError("URL must be a non-empty string")
+            raise InvalidInputError("URL must be a non-empty string")
 
-        if "pinterest.com" not in url:
-            raise PinterestInvalidURLError("URL must be a valid Pinterest URL")
+        if "pinterest.com" not in url and "pin.it" not in url:
+            raise InvalidInputError("URL must be a valid Pinterest URL")
 
-        logger.info(f"Downloading image from: {url}")
+        logger.info(f"Downloading image from: {url} (quality={quality}, format={format}, size={width}x{height})")
 
-        try:
-            params = {"url": url}
-            data = await self._make_request("/download/image", params)
+        params = {"url": url, "quality": quality}
+        if format:
+            params["format"] = format
+        if width:
+            params["width"] = str(width)
+        if height:
+            params["height"] = str(height)
 
-            if not data.get("success"):
-                raise PinterestDownloadError("API returned success=false")
+        data = await self._make_request("GET", "/download/image", params=params)
 
-            result = ImageDownloadResult(
-                success=data.get("success", False),
-                download_url=data.get("download_url", ""),
-                title=data.get("title", "")
+        if not data.get("success"):
+            raise DownloadError("API returned success=false")
+
+        # Parse metadata if available
+        metadata = None
+        if "metadata" in data:
+            meta_data = data["metadata"]
+            metadata = ImageMetadata(
+                width=meta_data.get("width"),
+                height=meta_data.get("height"),
+                file_size=meta_data.get("file_size"),
+                format=meta_data.get("format")
             )
 
-            logger.info(f"Image downloaded successfully: {result.title}")
-            return result
+        result = ImageDownloadResult(
+            success=data.get("success", False),
+            download_url=data.get("download_url", ""),
+            title=data.get("title", ""),
+            metadata=metadata,
+            cached=data.get("cached", False)
+        )
 
-        except (PinterestAuthenticationError, PinterestRequestError):
-            raise
+        logger.info(f"Image downloaded successfully: {result.title}")
+        return result
 
     async def video(self, url: str) -> VideoDownloadResult:
         """
@@ -475,37 +410,33 @@ class PinterestAPI:
             PinterestDownloadError: If download fails
         """
         if not url or not isinstance(url, str):
-            raise PinterestInvalidURLError("URL must be a non-empty string")
+            raise InvalidInputError("URL must be a non-empty string")
 
         if "pinterest.com" not in url:
-            raise PinterestInvalidURLError("URL must be a valid Pinterest URL")
+            raise InvalidInputError("URL must be a valid Pinterest URL")
 
         logger.info(f"Downloading video from: {url}")
 
-        try:
-            params = {"url": url}
-            data = await self._make_request("/download/video", params)
+        params = {"url": url}
+        data = await self._make_request("GET", "/download/video", params=params)
 
-            if not data.get("success"):
-                raise PinterestDownloadError("API returned success=false")
+        if not data.get("success"):
+            raise DownloadError("API returned success=false")
 
-            # Parse thumbnails
-            thumbnails = []
-            for thumb_data in data.get("thumbnails", []):
-                thumbnails.append(Thumbnail.from_dict(thumb_data))
+        # Parse thumbnails
+        thumbnails = []
+        for thumb_data in data.get("thumbnails", []):
+            thumbnails.append(Thumbnail.from_dict(thumb_data))
 
-            result = VideoDownloadResult(
-                success=data.get("success", False),
-                download_url=data.get("download_url", ""),
-                title=data.get("title", ""),
-                thumbnails=thumbnails
-            )
+        result = VideoDownloadResult(
+            success=data.get("success", False),
+            download_url=data.get("download_url", ""),
+            title=data.get("title", ""),
+            thumbnails=thumbnails
+        )
 
-            logger.info(f"Video downloaded successfully: {result.title}")
-            return result
-
-        except (PinterestAuthenticationError, PinterestRequestError):
-            raise
+        logger.info(f"Video downloaded successfully: {result.title}")
+        return result
 
     async def download(self, url: str, media_type: str = "auto") -> Union[ImageDownloadResult, VideoDownloadResult]:
         """
@@ -531,7 +462,7 @@ class PinterestAPI:
                 result = await client.download(url, media_type="image")
         """
         if media_type not in ["image", "video", "auto"]:
-            raise PinterestInvalidURLError(
+            raise InvalidInputError(
                 "media_type must be 'image', 'video', or 'auto'"
             )
 
@@ -546,6 +477,161 @@ class PinterestAPI:
             except PinterestDownloadError:
                 logger.debug("Image download failed, trying video...")
                 return await self.video(url)
+
+    async def board(
+        self,
+        url: str,
+        max_images: int = 25,
+        return_zip: bool = False
+    ) -> BoardDownloadResult:
+        """
+        Download images from a Pinterest board.
+
+        Args:
+            url: Pinterest board URL
+            max_images: Maximum number of images to download (1-50, default: 25)
+            return_zip: Return as ZIP file (default: False)
+
+        Returns:
+            BoardDownloadResult with board info and image URLs
+
+        Raises:
+            PinterestInvalidURLError: If URL is invalid
+            PinterestDownloadError: If download fails
+        """
+        if not url or not isinstance(url, str):
+            raise InvalidInputError("URL must be a non-empty string")
+
+        if "pinterest.com" not in url and "pin.it" not in url:
+            raise InvalidInputError("URL must be a valid Pinterest URL")
+
+        logger.info(f"Downloading board: {url} (max_images={max_images}, return_zip={return_zip})")
+
+        params = {
+            "url": url,
+            "max_images": str(max_images),
+            "return_zip": str(return_zip).lower()
+        }
+        data = await self._make_request("GET", "/download/board", params=params)
+
+        if not data.get("success"):
+            raise DownloadError("API returned success=false")
+
+        result = BoardDownloadResult(
+            success=data.get("success", False),
+            board_name=data.get("board_name", ""),
+            total_images=data.get("total_images", 0),
+            images=data.get("images", []),
+            requests_used=data.get("requests_used", 1),
+            zip_url=data.get("zip_url")
+        )
+
+        logger.info(f"Board downloaded successfully: {result.board_name} ({result.total_images} images)")
+        return result
+
+    async def batch(
+        self,
+        urls: List[str],
+        quality: str = "original",
+        return_zip: bool = False
+    ) -> BatchDownloadResult:
+        """
+        Download multiple images in batch.
+
+        Args:
+            urls: List of Pinterest URLs (max 50)
+            quality: Image quality - 'original', 'high', 'medium', 'low' (default: 'original')
+            return_zip: Return as ZIP file (default: False)
+
+        Returns:
+            BatchDownloadResult with download info and image URLs
+
+        Raises:
+            PinterestInvalidURLError: If URLs are invalid or exceed limit
+            PinterestDownloadError: If download fails
+        """
+        if not urls or not isinstance(urls, list):
+            raise InvalidInputError("URLs must be a non-empty list")
+
+        if len(urls) > 50:
+            raise InvalidInputError("Maximum 50 URLs per batch")
+
+        logger.info(f"Batch download: {len(urls)} URLs (quality={quality}, return_zip={return_zip})")
+
+        payload = {
+            "urls": urls,
+            "quality": quality,
+            "return_zip": return_zip
+        }
+
+        data = await self._make_request("POST", "/download/batch", json=payload)
+
+        if not data.get("success"):
+            raise DownloadError("API returned success=false")
+
+        result = BatchDownloadResult(
+            success=data.get("success", False),
+            total_requested=data.get("total_requested", 0),
+            total_downloaded=data.get("total_downloaded", 0),
+            failed=data.get("failed", 0),
+            images=data.get("images", []),
+            requests_used=data.get("requests_used", 1),
+            zip_url=data.get("zip_url")
+        )
+
+        logger.info(f"Batch download completed: {result.total_downloaded}/{result.total_requested} successful")
+        return result
+
+    async def profile(
+        self,
+        url: str,
+        max_pins: int = 30,
+        return_zip: bool = False
+    ) -> ProfileDownloadResult:
+        """
+        Download pins from a Pinterest profile.
+
+        Args:
+            url: Pinterest profile URL
+            max_pins: Maximum number of pins to download (1-50, default: 30)
+            return_zip: Return as ZIP file (default: False)
+
+        Returns:
+            ProfileDownloadResult with profile info and image URLs
+
+        Raises:
+            PinterestInvalidURLError: If URL is invalid
+            PinterestDownloadError: If download fails
+        """
+        if not url or not isinstance(url, str):
+            raise InvalidInputError("URL must be a non-empty string")
+
+        if "pinterest.com" not in url and "pin.it" not in url:
+            raise InvalidInputError("URL must be a valid Pinterest URL")
+
+        logger.info(f"Downloading profile: {url} (max_pins={max_pins}, return_zip={return_zip})")
+
+        params = {
+            "url": url,
+            "max_pins": str(max_pins),
+            "return_zip": str(return_zip).lower()
+        }
+        data = await self._make_request("GET", "/download/profile", params=params)
+
+        if not data.get("success"):
+            raise DownloadError("API returned success=false")
+
+        result = ProfileDownloadResult(
+            success=data.get("success", False),
+            username=data.get("username", ""),
+            total_pins=data.get("total_pins", 0),
+            images=data.get("images", []),
+            requests_used=data.get("requests_used", 1),
+            zip_url=data.get("zip_url")
+        )
+
+        logger.info(f"Profile downloaded successfully: {result.username} ({result.total_pins} pins)")
+        return result
 
     # Aliases for backward compatibility
     async def download_image(self, url: str) -> ImageDownloadResult:

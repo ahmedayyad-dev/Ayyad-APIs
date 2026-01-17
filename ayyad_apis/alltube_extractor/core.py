@@ -10,7 +10,17 @@ Author: Ahmed Ayyad
 import json
 import logging
 from typing import Optional, Dict, Any
-import aiohttp
+
+# Import base classes and utilities
+from ..utils import (
+    BaseRapidAPI,
+    APIError,
+    AuthenticationError,
+    RequestError,
+    InvalidInputError,
+    APIConfig,
+    with_retry,
+)
 
 try:
     from yt_dlp import YoutubeDL
@@ -22,31 +32,18 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 
-# ==================== Custom Exceptions ====================
+# ==================== Exception Aliases (Backward Compatibility) ====================
 
-class AllTubeError(Exception):
-    """Base exception for AllTube API errors."""
-    pass
-
-
-class AllTubeAuthenticationError(AllTubeError):
-    """Raised when API authentication fails."""
-    pass
-
-
-class AllTubeRequestError(AllTubeError):
-    """Raised when API request fails."""
-    pass
-
-
-class AllTubeInvalidURLError(AllTubeError):
-    """Raised when video URL is invalid or malformed."""
-    pass
+# Create aliases for backward compatibility
+AllTubeError = APIError
+AllTubeAuthenticationError = AuthenticationError
+AllTubeRequestError = RequestError
+AllTubeInvalidURLError = InvalidInputError
 
 
 # ==================== AllTube API Client ====================
 
-class AllTubeAPI:
+class AllTubeAPI(BaseRapidAPI):
     """
     Async client for AllTube CDN Extractor API via RapidAPI.
 
@@ -58,6 +55,12 @@ class AllTubeAPI:
     - Twitter/X
     - Vimeo
     - And many more...
+
+    Inherits from BaseRapidAPI for common functionality including:
+    - Session management
+    - Header creation
+    - Response validation
+    - Error handling
 
     Example:
         async with AllTubeAPI(api_key="your_key") as client:
@@ -77,51 +80,17 @@ class AllTubeAPI:
                 print(f"Language: {lang}")
                 for sub in subs:
                     print(f"  - {sub.get('name')} ({sub.get('ext')})")
+
+            # Use with config
+            config = APIConfig(api_key="key", timeout=120)
+            async with AllTubeAPI(config=config) as client:
+                info = await client.get_info("url")
     """
 
     BASE_URL = "https://alltube-cdn-extractor.p.rapidapi.com"
     DEFAULT_HOST = "alltube-cdn-extractor.p.rapidapi.com"
 
-    def __init__(
-        self,
-        api_key: str,
-        rapidapi_host: Optional[str] = None,
-        timeout: int = 60
-    ):
-        """
-        Initialize AllTube API client.
-
-        Args:
-            api_key: RapidAPI key for authentication
-            rapidapi_host: RapidAPI host (defaults to alltube-cdn-extractor.p.rapidapi.com)
-            timeout: Request timeout in seconds (default: 60)
-        """
-        self.api_key = api_key
-        self.rapidapi_host = rapidapi_host or self.DEFAULT_HOST
-        self.timeout = aiohttp.ClientTimeout(total=timeout)
-        self._session: Optional[aiohttp.ClientSession] = None
-
-        logger.info("AllTube API client initialized")
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        self._session = aiohttp.ClientSession(timeout=self.timeout)
-        logger.debug("HTTP session created")
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            logger.debug("HTTP session closed")
-        return False
-
-    def _get_headers(self) -> Dict[str, str]:
-        """Get request headers with authentication."""
-        return {
-            "x-rapidapi-host": self.rapidapi_host,
-            "x-rapidapi-key": self.api_key
-        }
+    # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
     async def get_info(self, url: str, yt_dlp_opts={}) -> Dict[str, Any]:
         """
@@ -154,54 +123,26 @@ class AllTubeAPI:
                 print(f"Available formats: {len(info.get('formats', []))}")
         """
         if not url or not isinstance(url, str):
-            raise AllTubeInvalidURLError("URL must be a non-empty string")
+            raise InvalidInputError("URL must be a non-empty string")
 
         if not url.startswith(("http://", "https://")):
-            raise AllTubeInvalidURLError("URL must start with http:// or https://")
+            raise InvalidInputError("URL must start with http:// or https://")
 
         logger.info(f"Extracting video info from: {url}")
 
-        if not self._session:
-            raise AllTubeError("Session not initialized. Use async context manager.")
-
-        endpoint = f"{self.BASE_URL}/getInfo"
-        headers = self._get_headers()
         params = {
             "url": url,
             'yt_dlp_opts': json.dumps(yt_dlp_opts, indent=2, ensure_ascii=False)
         }
 
-        try:
-            async with self._session.get(endpoint, headers=headers, params=params) as response:
-                # Check for authentication errors
-                if response.status == 401 or response.status == 403:
-                    raise AllTubeAuthenticationError(
-                        f"Authentication failed: {response.status}"
-                    )
+        data = await self._make_request("GET", "/getInfo", params=params)
 
-                # Check for other errors
-                if response.status != 200:
-                    error_text = await response.text()
-                    raise AllTubeRequestError(
-                        f"Request failed with status {response.status}: {error_text}"
-                    )
+        # Check if the response contains error
+        if isinstance(data, dict) and data.get("error"):
+            raise RequestError(f"API error: {data.get('error')}")
 
-                data = await response.json()
-
-                # Check if the response contains error
-                if isinstance(data, dict) and data.get("error"):
-                    raise AllTubeRequestError(f"API error: {data.get('error')}")
-
-                logger.debug("Request successful")
-                logger.info(f"Successfully extracted info for: {data.get('title', 'Unknown')}")
-
-                return data
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Request error: {str(e)}")
-            raise AllTubeRequestError(f"Network error: {str(e)}")
-        except (AllTubeAuthenticationError, AllTubeRequestError):
-            raise
+        logger.info(f"Successfully extracted info for: {data.get('title', 'Unknown')}")
+        return data
 
     async def yt_dlp_download(self, url: str, yt_dlp_format: str = "best",
                               yt_dlp_outtmpl: str = "%(title)s.%(ext)s",download=True) -> Dict[str, Any]:
@@ -224,8 +165,6 @@ class AllTubeAPI:
         """
         if not yt_dlp_installed:
             raise Exception("yt_dlp is not installed. Install it with: pip install yt-dlp")
-        if not self._session:
-            raise AllTubeError("Session not initialized. Use async context manager.")
 
         # Build yt_dlp options
         yt_dlp_opts = {

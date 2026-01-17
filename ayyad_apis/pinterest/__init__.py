@@ -13,8 +13,12 @@ from .core import (
 
     # Data Models
     Thumbnail,
+    ImageMetadata,
     ImageDownloadResult,
     VideoDownloadResult,
+    BoardDownloadResult,
+    BatchDownloadResult,
+    ProfileDownloadResult,
 
     # Exceptions
     PinterestAPIError,
@@ -33,8 +37,12 @@ __all__ = [
 
     # Data Models
     "Thumbnail",
+    "ImageMetadata",
     "ImageDownloadResult",
     "VideoDownloadResult",
+    "BoardDownloadResult",
+    "BatchDownloadResult",
+    "ProfileDownloadResult",
 
     # Exceptions
     "PinterestAPIError",

@@ -6,13 +6,10 @@ from .core import (
     Video,
     VideoInfoResponse,
     TelegramResponse,
-    TelegramInfoResponse,
     DownloadResult,
     LiveStream,
     ServerDownloadField,
     ServerResponse,
-    HostDownloadField,
-    HostResponse
 )
 
 __all__ = [
@@ -23,11 +20,8 @@ __all__ = [
     "Video",
     "VideoInfoResponse",
     "TelegramResponse",
-    "TelegramInfoResponse",
     "DownloadResult",
     "LiveStream",
     "ServerDownloadField",
     "ServerResponse",
-    "HostDownloadField",
-    "HostResponse",
 ]
