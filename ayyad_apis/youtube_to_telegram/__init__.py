@@ -10,6 +10,9 @@ from .core import (
     LiveStream,
     ServerDownloadField,
     ServerResponse,
+    # New progress tracking models (2026-01-19)
+    DownloadProgress,
+    BackgroundJobResponse,
 )
 
 __all__ = [
@@ -24,4 +27,7 @@ __all__ = [
     "LiveStream",
     "ServerDownloadField",
     "ServerResponse",
+    # New progress tracking models
+    "DownloadProgress",
+    "BackgroundJobResponse",
 ]

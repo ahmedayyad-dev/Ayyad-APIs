@@ -43,6 +43,49 @@ class APIResponseError(RequestError):
 # ==================== Data Models ====================
 
 @dataclass
+class DownloadProgress(BaseResponse):
+    """
+    Progress information for background download jobs.
+
+    Returned by get_download_progress() endpoint.
+    """
+    success: bool = True
+    job_id: str = None
+    status: str = None  # initializing, downloading, background_processing, completed, failed
+    video_id: str = None
+    percentage: float = 0.0
+    timestamp: float = None
+    # Fields for 'downloading' status
+    downloaded_bytes: Optional[int] = None
+    total_bytes: Optional[int] = None
+    speed: Optional[float] = None  # bytes/sec
+    eta: Optional[int] = None  # seconds
+    # Fields for 'completed' status
+    result: Optional[dict] = None
+    # Fields for 'failed' status
+    error: Optional[str] = None
+    # Fields for 'background_processing' status
+    message: Optional[str] = None
+
+
+@dataclass
+class BackgroundJobResponse(BaseResponse):
+    """
+    Response when download is moved to background (HTTP 202).
+
+    This happens when video is too large and would exceed timeout.
+    Use job_id to track progress via get_download_progress().
+    """
+    success: bool = True
+    status: str = "background_processing"
+    job_id: str = None
+    message: str = None
+    try_after: int = None  # seconds
+    progress_url: str = None
+    video_id: str = None
+
+
+@dataclass
 class Channel(BaseResponse):
     """Channel information"""
     name: str = None
@@ -121,6 +164,10 @@ class TelegramResponse(Video):
     file_url: str = None
     message_id: int = None
     chat_username: str = None
+    # Progress tracking fields (added 2026-01-19)
+    job_id: Optional[str] = None
+    status: Optional[str] = None  # completed, background_processing
+    progress_url: Optional[str] = None
 
 
 
@@ -193,6 +240,10 @@ class ServerResponse(Video):
     """Response for /youtube_to_server"""
     download: ServerDownloadField = None
     _api_instance: Optional[YouTubeAPI] = None
+    # Progress tracking fields (added 2026-01-19)
+    job_id: Optional[str] = None
+    status: Optional[str] = None  # completed, background_processing
+    progress_url: Optional[str] = None
 
     async def download_file(self, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
@@ -337,6 +388,22 @@ class YouTubeAPI(BaseRapidAPI):
                         status_code=response.status,
                         endpoint=endpoint
                     )
+
+                # Handle 202 Accepted - Background processing
+                if response.status == 202:
+                    try:
+                        data = await response.json()
+                        # Return BackgroundJobResponse info for the caller to handle
+                        logger.info(f"Background processing initiated: job_id={data.get('job_id')}")
+                        return data
+                    except Exception:
+                        error_text = await response.text()
+                        raise RequestError(
+                            error_text or "Background processing initiated but response parsing failed",
+                            status_code=response.status,
+                            endpoint=endpoint,
+                            response_text=error_text
+                        )
 
                 if response.status != 200:
                     error_text = await response.text()
@@ -542,3 +609,51 @@ class YouTubeAPI(BaseRapidAPI):
         """Get MP4 live stream URL for a YouTube video"""
         data = await self._request("youtube_video_stream", {"video_id": video_id, "format": format})
         return LiveStream(url=data.get("url"))
+
+    @with_retry(max_attempts=3, delay=1.0)
+    async def get_download_progress(self, job_id: str) -> DownloadProgress:
+        """
+        Get download progress for a background job.
+
+        Use this endpoint to check the progress of downloads that were moved
+        to background processing (when you receive a BackgroundJobResponse).
+
+        Args:
+            job_id: The job ID returned from youtube_to_server or youtube_to_telegram
+
+        Returns:
+            DownloadProgress: Progress information including status, percentage, ETA, etc.
+
+        Example:
+            async with YouTubeAPI(api_key="key") as client:
+                try:
+                    result = await client.youtube_to_server("video_id")
+                except RequestError as e:
+                    # If status code is 202, download is in background
+                    if e.status_code == 202:
+                        job_id = e.response_text.get("job_id")
+                        # Check progress
+                        progress = await client.get_download_progress(job_id)
+                        print(f"Progress: {progress.percentage}%")
+
+                        if progress.status == "completed":
+                            result = progress.result  # Full result data
+        """
+        data = await self._request("download_progress", {"job_id": job_id})
+
+        # Parse into DownloadProgress dataclass
+        return DownloadProgress(
+            success=data.get("success", True),
+            job_id=data.get("job_id"),
+            status=data.get("status"),
+            video_id=data.get("video_id"),
+            percentage=data.get("percentage", 0.0),
+            timestamp=data.get("timestamp"),
+            downloaded_bytes=data.get("downloaded_bytes"),
+            total_bytes=data.get("total_bytes"),
+            speed=data.get("speed"),
+            eta=data.get("eta"),
+            result=data.get("result"),
+            error=data.get("error"),
+            message=data.get("message")
+        )
