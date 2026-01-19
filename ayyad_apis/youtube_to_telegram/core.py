@@ -193,6 +193,7 @@ class LiveStream(BaseResponse):
 class ServerDownloadField(BaseResponse):
     """Download field returned in youtube_to_server endpoint"""
     download_url: str
+    filepath: Optional[str] = None  # Added in API v25.01.19+
 
 
 @dataclass
@@ -310,8 +311,11 @@ class YouTubeAPI(BaseRapidAPI):
             parsed_data['_api_instance'] = self
 
         elif response_class == TelegramResponse:
-            # No special handling needed
-            pass
+            # Flatten nested 'telegram' object if present
+            if 'telegram' in parsed_data and isinstance(parsed_data['telegram'], dict):
+                telegram_data = parsed_data.pop('telegram')
+                # Merge telegram fields into root level
+                parsed_data.update(telegram_data)
 
         elif response_class == VideoSearchResult:
             # Handle search result nested objects
@@ -562,6 +566,72 @@ class YouTubeAPI(BaseRapidAPI):
             pass
         return error_text
 
+    async def _wait_for_background_job(self, job_id: str, poll_interval: float = 2.0,
+                                       max_wait_time: Optional[int] = None) -> dict:
+        """
+        Wait for a background job to complete by polling the progress endpoint.
+
+        Args:
+            job_id: The job ID to track
+            poll_interval: Time in seconds between progress checks (default: 2.0)
+            max_wait_time: Maximum time to wait in seconds (default: None = no limit)
+
+        Returns:
+            dict: The completed job result
+
+        Raises:
+            RequestError: If job fails or max wait time exceeded
+        """
+        start_time = asyncio.get_event_loop().time() if max_wait_time else None
+        logger.info(f"[BACKGROUND_WAIT] Waiting for job {job_id} to complete...")
+
+        while True:
+            # Check if max wait time exceeded
+            if max_wait_time and start_time:
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= max_wait_time:
+                    raise RequestError(
+                        f"Background job timeout: exceeded {max_wait_time}s",
+                        endpoint="download_progress"
+                    )
+
+            # Get progress
+            try:
+                progress = await self.get_download_progress(job_id)
+            except Exception as e:
+                logger.error(f"[BACKGROUND_WAIT] Error checking progress: {e}")
+                raise RequestError(
+                    f"Failed to check background job progress: {str(e)}",
+                    endpoint="download_progress",
+                    original_error=e
+                )
+
+            status = progress.status
+            logger.info(f"[BACKGROUND_WAIT] Job {job_id} status: {status} ({progress.percentage:.1f}%)")
+
+            if status == "completed":
+                logger.info(f"[BACKGROUND_WAIT] Job {job_id} completed successfully")
+                return progress.result
+
+            elif status == "failed":
+                error_msg = progress.error or "Unknown error"
+                logger.error(f"[BACKGROUND_WAIT] Job {job_id} failed: {error_msg}")
+                raise RequestError(
+                    f"Background job failed: {error_msg}",
+                    endpoint="download_progress"
+                )
+
+            elif status in ("initializing", "downloading", "background_processing"):
+                # Still processing, wait and retry
+                await asyncio.sleep(poll_interval)
+                continue
+
+            else:
+                # Unknown status
+                logger.warning(f"[BACKGROUND_WAIT] Unknown job status: {status}")
+                await asyncio.sleep(poll_interval)
+                continue
+
     # ==================== Public Methods ====================
 
     @with_retry(max_attempts=3, delay=1.0)
@@ -571,15 +641,91 @@ class YouTubeAPI(BaseRapidAPI):
         return self._parse_response_data(data, VideoInfoResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_to_server(self, video_id: str, format: str = "audio") -> ServerResponse:
-        """Get downloadable server URL for a given video"""
+    async def youtube_to_server(self, video_id: str, format: str = "audio",
+                               auto_wait: bool = True, poll_interval: float = 2.0,
+                               max_wait_time: Optional[int] = None) -> ServerResponse:
+        """
+        Get downloadable server URL for a given video.
+
+        Args:
+            video_id: YouTube video ID or URL
+            format: Format type ("audio" or "video")
+            auto_wait: If True, automatically wait for background jobs to complete (default: True)
+            poll_interval: Time in seconds between progress checks when waiting (default: 2.0)
+            max_wait_time: Maximum time to wait for background jobs in seconds (default: None = no limit)
+
+        Returns:
+            ServerResponse: Response containing download URL and video info
+
+        Example:
+            async with YouTubeAPI(api_key="key") as client:
+                # Auto-wait enabled (default)
+                result = await client.youtube_to_server("video_id")
+                print(result.download.download_url)
+
+                # Disable auto-wait to handle background jobs manually
+                result = await client.youtube_to_server("video_id", auto_wait=False)
+                if result.status == "background_processing":
+                    # Handle background job manually using result.job_id
+                    progress = await client.get_download_progress(result.job_id)
+        """
         data = await self._request("youtube_to_server", {"video_id": video_id, "format": format})
+
+        # Check if response indicates background processing
+        if auto_wait and data.get("status") == "background_processing" and data.get("job_id"):
+            job_id = data["job_id"]
+            logger.info(f"[AUTO_WAIT] Background job detected (job_id={job_id}), waiting for completion...")
+
+            # Wait for job to complete
+            result = await self._wait_for_background_job(job_id, poll_interval, max_wait_time)
+
+            # Parse the final result
+            return self._parse_response_data(result, ServerResponse)
+
         return self._parse_response_data(data, ServerResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_to_telegram(self, video_id: str, format: str = "audio") -> TelegramResponse:
-        """Upload YouTube video to Telegram"""
+    async def youtube_to_telegram(self, video_id: str, format: str = "audio",
+                                  auto_wait: bool = True, poll_interval: float = 2.0,
+                                  max_wait_time: Optional[int] = None) -> TelegramResponse:
+        """
+        Upload YouTube video to Telegram.
+
+        Args:
+            video_id: YouTube video ID or URL
+            format: Format type ("audio" or "video")
+            auto_wait: If True, automatically wait for background jobs to complete (default: True)
+            poll_interval: Time in seconds between progress checks when waiting (default: 2.0)
+            max_wait_time: Maximum time to wait for background jobs in seconds (default: None = no limit)
+
+        Returns:
+            TelegramResponse: Response containing Telegram file URL and message info
+
+        Example:
+            async with YouTubeAPI(api_key="key") as client:
+                # Auto-wait enabled (default)
+                result = await client.youtube_to_telegram("video_id")
+                print(result.file_url)
+
+                # Disable auto-wait to handle background jobs manually
+                result = await client.youtube_to_telegram("video_id", auto_wait=False)
+                if result.status == "background_processing":
+                    # Handle background job manually using result.job_id
+                    progress = await client.get_download_progress(result.job_id)
+        """
         data = await self._request("youtube_to_telegram", {"video_id": video_id, "format": format})
+
+        # Check if response indicates background processing
+        if auto_wait and data.get("status") == "background_processing" and data.get("job_id"):
+            job_id = data["job_id"]
+            logger.info(f"[AUTO_WAIT] Background job detected (job_id={job_id}), waiting for completion...")
+
+            # Wait for job to complete
+            result = await self._wait_for_background_job(job_id, poll_interval, max_wait_time)
+
+            # Parse the final result
+            return self._parse_response_data(result, TelegramResponse)
+
         return self._parse_response_data(data, TelegramResponse)
 
     @with_retry(max_attempts=3, delay=1.0)

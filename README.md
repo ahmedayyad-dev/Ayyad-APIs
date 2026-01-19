@@ -4,4 +4,4 @@ Python package that bundles multiple API wrappers in one place.
 
 ## Installation
 ```bash
-pip install git+https://github.com/ahmedayyad-dev/Ayyad-APIs.git
+pip install -U git+https://github.com/ahmedayyad-dev/Ayyad-APIs.git
