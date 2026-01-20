@@ -159,8 +159,9 @@ class VideoInfoResponse(BaseResponse):
 
 
 @dataclass
-class TelegramResponse(Video):
+class TelegramResponse(BaseResponse):
     """Response when uploading YouTube video to Telegram"""
+    success: bool = True
     file_url: str = None
     message_id: int = None
     chat_username: str = None
@@ -168,6 +169,8 @@ class TelegramResponse(Video):
     job_id: Optional[str] = None
     status: Optional[str] = None  # completed, background_processing
     progress_url: Optional[str] = None
+
+    # to_dict() and to_json() inherited from BaseResponse
 
 
 
@@ -331,21 +334,24 @@ class YouTubeAPI(BaseRapidAPI):
             if 'accessibility' in parsed_data and isinstance(parsed_data['accessibility'], dict):
                 parsed_data['accessibility'] = Accessibility(**parsed_data['accessibility'])
 
-        # Handle common Video fields present in almost all responses
-        if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
-            uploader_data = parsed_data['uploader'].copy()
-            if 'channel_name' in uploader_data:
-                uploader_data['name'] = uploader_data.pop('channel_name')
-            if 'channel_url' in uploader_data:
-                uploader_data['link'] = uploader_data.pop('channel_url')
-            parsed_data['uploader'] = Channel(**uploader_data)
+        # Handle common Video fields present in Video-related responses only
+        # Skip for TelegramResponse (which only has file_url, message_id, etc.)
+        if response_class != TelegramResponse:
+            if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
+                uploader_data = parsed_data['uploader'].copy()
+                if 'channel_name' in uploader_data:
+                    uploader_data['name'] = uploader_data.pop('channel_name')
+                if 'channel_url' in uploader_data:
+                    uploader_data['link'] = uploader_data.pop('channel_url')
+                parsed_data['uploader'] = Channel(**uploader_data)
 
-        # Normalize tags to list
-        if 'tags' in parsed_data and not isinstance(parsed_data['tags'], list):
-            if parsed_data['tags'] is None:
-                parsed_data['tags'] = []
-            else:
-                parsed_data['tags'] = [parsed_data['tags']] if isinstance(parsed_data['tags'], str) else []
+        # Normalize tags to list (only for Video-related responses)
+        if response_class != TelegramResponse:
+            if 'tags' in parsed_data and not isinstance(parsed_data['tags'], list):
+                if parsed_data['tags'] is None:
+                    parsed_data['tags'] = []
+                else:
+                    parsed_data['tags'] = [parsed_data['tags']] if isinstance(parsed_data['tags'], str) else []
 
         # Normalize subtitle_languages and formats for VideoInfoResponse
         if response_class == VideoInfoResponse:
