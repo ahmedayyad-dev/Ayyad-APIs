@@ -8,11 +8,12 @@ from .core import (
     TelegramResponse,
     DownloadResult,
     LiveStream,
-    ServerDownloadField,
     ServerResponse,
-    # New progress tracking models (2026-01-19)
+    # Progress tracking models (added 2026-01-19)
     DownloadProgress,
     BackgroundJobResponse,
+    # Deprecated (v26.01.21+) - kept for reference only
+    ServerDownloadField,
 )
 
 __all__ = [
@@ -25,9 +26,10 @@ __all__ = [
     "TelegramResponse",
     "DownloadResult",
     "LiveStream",
-    "ServerDownloadField",
     "ServerResponse",
-    # New progress tracking models
+    # Progress tracking models
     "DownloadProgress",
     "BackgroundJobResponse",
+    # Deprecated - do not use
+    "ServerDownloadField",
 ]

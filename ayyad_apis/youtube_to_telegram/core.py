@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
-import json
-import aiohttp
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import Optional, List, Dict, Any
 import asyncio
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional, List
 
 # Import base classes and utilities
 from ..utils import (
@@ -15,7 +14,6 @@ from ..utils import (
     APIError,
     AuthenticationError,
     RequestError,
-    InvalidInputError,
     DownloadError as BaseDownloadError,
     APIConfig,
     with_retry,
@@ -194,9 +192,13 @@ class LiveStream(BaseResponse):
 
 @dataclass
 class ServerDownloadField(BaseResponse):
-    """Download field returned in youtube_to_server endpoint"""
+    """
+    DEPRECATED: This class is deprecated as of API v26.01.21+
+    The download_url is now directly in ServerResponse root level.
+    This class is kept only for reference and will be removed in future versions.
+    """
     download_url: str
-    filepath: Optional[str] = None  # Added in API v25.01.19+
+    filepath: Optional[str] = None
 
 
 @dataclass
@@ -241,8 +243,12 @@ class VideoSearchResult(BaseResponse):
 
 @dataclass
 class ServerResponse(Video):
-    """Response for /youtube_to_server"""
-    download: ServerDownloadField = None
+    """Response for /youtube_to_server
+
+    API v26.01.21+: Response structure changed to include download_url directly in root level.
+    The nested download object has been removed.
+    """
+    download_url: Optional[str] = None
     _api_instance: Optional[YouTubeAPI] = None
     # Progress tracking fields (added 2026-01-19)
     job_id: Optional[str] = None
@@ -251,15 +257,33 @@ class ServerResponse(Video):
 
     async def download_file(self, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
+        """
+        Download the video file from the server URL to a local path.
+
+        Args:
+            file_path: Local path where the file will be saved
+            max_retries: Number of retry attempts (default: instance default)
+            retry_delay: Delay between retries in seconds (default: instance default)
+
+        Returns:
+            DownloadResult: Information about the downloaded file
+
+        Raises:
+            DownloadError: If download fails or no URL is available
+        """
         if not self._api_instance:
             raise DownloadError("API instance not available")
+
+        if not self.download_url:
+            raise DownloadError("No download URL available")
+
         logger.info(f"Downloading file to {file_path} from server...")
 
         # Use instance defaults if not specified
         retries = max_retries if max_retries is not None else self._api_instance._max_retries
         delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
 
-        return await self._api_instance.download_file(self.download.download_url, file_path, retries, delay)
+        return await self._api_instance.download_file(self.download_url, file_path, retries, delay)
 
 
 
@@ -309,8 +333,7 @@ class YouTubeAPI(BaseRapidAPI):
 
         # Handle nested objects depending on response class
         if response_class == ServerResponse:
-            if 'download' in parsed_data and isinstance(parsed_data['download'], dict):
-                parsed_data['download'] = ServerDownloadField(**parsed_data['download'])
+            # API v26.01.21+: download_url is directly in root, no nested download object
             parsed_data['_api_instance'] = self
 
         elif response_class == TelegramResponse:
@@ -662,12 +685,18 @@ class YouTubeAPI(BaseRapidAPI):
 
         Returns:
             ServerResponse: Response containing download URL and video info
+                          (API v26.01.21+: download_url is directly in root level)
 
         Example:
             async with YouTubeAPI(api_key="key") as client:
                 # Auto-wait enabled (default)
                 result = await client.youtube_to_server("video_id")
-                print(result.download.download_url)
+
+                # Access download URL
+                print(result.download_url)
+
+                # Download the file
+                await result.download_file("/path/to/save.mp4")
 
                 # Disable auto-wait to handle background jobs manually
                 result = await client.youtube_to_server("video_id", auto_wait=False)

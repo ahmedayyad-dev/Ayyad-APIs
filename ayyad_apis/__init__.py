@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"
 
 # Import shared utilities
 from .utils import (
@@ -51,11 +51,12 @@ from .youtube_to_telegram import (
     TelegramResponse,
     DownloadResult,
     LiveStream,
-    ServerDownloadField,
     ServerResponse,
     # Progress tracking (2026-01-19)
     DownloadProgress,
     BackgroundJobResponse,
+    # Deprecated (v26.01.21+) - kept for backward compatibility
+    ServerDownloadField,
 )
 
 from .youtube_suggest import (
