@@ -336,13 +336,6 @@ class YouTubeAPI(BaseRapidAPI):
             # API v26.01.21+: download_url is directly in root, no nested download object
             parsed_data['_api_instance'] = self
 
-        elif response_class == TelegramResponse:
-            # Flatten nested 'telegram' object if present
-            if 'telegram' in parsed_data and isinstance(parsed_data['telegram'], dict):
-                telegram_data = parsed_data.pop('telegram')
-                # Merge telegram fields into root level
-                parsed_data.update(telegram_data)
-
         elif response_class == VideoSearchResult:
             # Handle search result nested objects
             if 'viewCount' in parsed_data and isinstance(parsed_data['viewCount'], dict):
@@ -358,8 +351,7 @@ class YouTubeAPI(BaseRapidAPI):
                 parsed_data['accessibility'] = Accessibility(**parsed_data['accessibility'])
 
         # Handle common Video fields present in Video-related responses only
-        # Skip for TelegramResponse (which only has file_url, message_id, etc.)
-        if response_class != TelegramResponse:
+        if response_class not in (TelegramResponse, VideoSearchResult, VideoInfoResponse):
             if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
                 uploader_data = parsed_data['uploader'].copy()
                 if 'channel_name' in uploader_data:
@@ -369,7 +361,7 @@ class YouTubeAPI(BaseRapidAPI):
                 parsed_data['uploader'] = Channel(**uploader_data)
 
         # Normalize tags to list (only for Video-related responses)
-        if response_class != TelegramResponse:
+        if response_class not in (TelegramResponse, VideoSearchResult, VideoInfoResponse):
             if 'tags' in parsed_data and not isinstance(parsed_data['tags'], list):
                 if parsed_data['tags'] is None:
                     parsed_data['tags'] = []
