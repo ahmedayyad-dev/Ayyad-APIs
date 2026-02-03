@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, List
 
+import aiofiles
+
 # Import base classes and utilities
 from ..utils import (
     BaseRapidAPI,
@@ -465,7 +467,7 @@ class YouTubeAPI(BaseRapidAPI):
                         logger.info(f"Waiting {try_after} seconds before retry...")
                         await asyncio.sleep(try_after)
 
-                        logger.info(f"Retrying request after waiting...")
+                        logger.info("Retrying request after waiting...")
                         async with self._session.get(url, headers=headers, params=params) as retry_response:
                             if retry_response.status != 200:
                                 error_text = await retry_response.text()
@@ -520,12 +522,12 @@ class YouTubeAPI(BaseRapidAPI):
 
                     total_size = int(response.headers.get('content-length', 0))
 
-                    with open(file_path, "wb") as f:
+                    async with aiofiles.open(file_path, "wb") as f:
                         downloaded = 0
                         last_logged = 0
 
                         async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
+                            await f.write(chunk)
                             downloaded += len(chunk)
 
                             if total_size > 0:

@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.3"
+__version__ = "0.2.5"
 
 # Import shared utilities
 from .utils import (
@@ -17,7 +17,7 @@ from .utils import (
     AuthenticationError,
     RequestError,
     InvalidInputError,
-    DownloadError,
+    DownloadError as DownloadError,
     # Configuration
     APIConfig,
     # Progress tracking
@@ -43,7 +43,7 @@ from .porn_detection import (
 
 from .youtube_to_telegram import (
     YouTubeAPI,
-    DownloadError,
+    DownloadError as YouTubeDownloadError,
     APIResponseError as YouTubeAPIResponseError,
     Channel,
     Video,
@@ -154,7 +154,7 @@ __all__ = [
 
     # YouTube to Telegram
     "YouTubeAPI",
-    "DownloadError",
+    "YouTubeDownloadError",
     "YouTubeAPIResponseError",
     "Channel",
     "Video",

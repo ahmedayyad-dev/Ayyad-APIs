@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from typing import Optional, List, Dict, Any, Union
 from pathlib import Path
 
+import aiohttp
+import aiofiles
+
 # Import base classes and utilities
 from ..utils import (
     BaseRapidAPI,
@@ -20,7 +23,6 @@ from ..utils import (
     AuthenticationError,
     RequestError,
     InvalidInputError,
-    APIConfig,
     with_retry,
 )
 
@@ -66,7 +68,7 @@ class TextAnalysisResult(BaseResponse):
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TextAnalysisResult":
         """Create TextAnalysisResult from API response dictionary."""
-        words = []
+        words: List[BlockedWord] = []
         if "words" in data and isinstance(data["words"], list):
             words = [BlockedWord.from_dict(w) for w in data["words"]]
 
@@ -86,16 +88,16 @@ class AudioAnalysisResult(BaseResponse):
     message: Optional[str] = None
     confidence: Optional[float] = None
     is_toxic: Optional[bool] = None
-    words: List[BlockedWord] = None
+    words: Optional[List[BlockedWord]] = None
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         if self.words is None:
             self.words = []
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AudioAnalysisResult":
         """Create AudioAnalysisResult from API response dictionary."""
-        words = []
+        words: List[BlockedWord] = []
         if "words" in data and isinstance(data["words"], list):
             words = [BlockedWord.from_dict(w) for w in data["words"]]
 
@@ -150,7 +152,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
     async def _make_request_with_file(
         self,
         endpoint: str,
-        form_data: "aiohttp.FormData"
+        form_data: aiohttp.FormData
     ) -> Dict[str, Any]:
         """
         Make an async request with file upload (for audio analysis).
@@ -169,11 +171,10 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
-        import aiohttp
-        url = f"{self.BASE_URL}{endpoint}"
+        url: str = f"{self.BASE_URL}{endpoint}"
 
         # For file uploads, don't include Content-Type - aiohttp sets it automatically
-        headers = {
+        headers: Dict[str, str] = {
             "x-rapidapi-host": self.rapidapi_host,
             "x-rapidapi-key": self.api_key
         }
@@ -185,22 +186,22 @@ class ToxicityDetectorAPI(BaseRapidAPI):
                 # Check for authentication errors
                 if response.status in (401, 403):
                     raise AuthenticationError(
-                        f"Authentication failed",
+                        "Authentication failed",
                         status_code=response.status,
                         endpoint=endpoint
                     )
 
                 # Check for other errors
                 if response.status != 200:
-                    error_text = await response.text()
+                    error_text: str = await response.text()
                     raise RequestError(
-                        f"Request failed",
+                        "Request failed",
                         status_code=response.status,
                         response_text=error_text,
                         endpoint=endpoint
                     )
 
-                data = await response.json()
+                data: Dict[str, Any] = await response.json()
                 logger.debug("File upload request successful")
                 return data
 
@@ -239,10 +240,10 @@ class ToxicityDetectorAPI(BaseRapidAPI):
 
         logger.info(f"Analyzing text: {text[:50]}...")
 
-        payload = {"text": text}
-        data = await self._make_request("POST", "/analyze-text", json=payload)
+        payload: Dict[str, str] = {"text": text}
+        data: Dict[str, Any] = await self._make_request("POST", "/analyze-text", json=payload)
 
-        result = TextAnalysisResult.from_dict(data)
+        result: TextAnalysisResult = TextAnalysisResult.from_dict(data)
         logger.info(f"Text analysis complete: is_toxic={result.is_toxic}, confidence={result.confidence:.2f}")
         return result
 
@@ -278,19 +279,20 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         logger.info(f"Analyzing audio: {audio_path}")
 
         # Prepare multipart form data
-        import aiohttp
         form = aiohttp.FormData()
-        form.add_field(
-            'audio',
-            open(audio_path, 'rb'),
-            filename=audio_path.name,
-            content_type='audio/mpeg'
-        )
+        async with aiofiles.open(audio_path, 'rb') as f:
+            file_content: bytes = await f.read()
+            form.add_field(
+                'audio',
+                file_content,
+                filename=audio_path.name,
+                content_type='audio/mpeg'
+            )
         form.add_field('language', language)
 
-        data = await self._make_request_with_file("/analyze-audio", form)
+        data: Dict[str, Any] = await self._make_request_with_file("/analyze-audio", form)
 
-        result = AudioAnalysisResult.from_dict(data)
+        result: AudioAnalysisResult = AudioAnalysisResult.from_dict(data)
         logger.info(f"Audio analysis complete: success={result.success}")
         return result
 
@@ -305,7 +307,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
             health = await client.health_check()
             print(f"API Status: {health['status']}")
         """
-        data = await self._make_request("GET", "/health")
+        data: Dict[str, Any] = await self._make_request("GET", "/health")
         logger.info("Health check successful")
         return data
 
@@ -320,6 +322,6 @@ class ToxicityDetectorAPI(BaseRapidAPI):
             info = await client.model_info()
             print(f"Model info: {info}")
         """
-        data = await self._make_request("GET", "/model-info")
+        data: Dict[str, Any] = await self._make_request("GET", "/model-info")
         logger.info("Model info retrieved")
         return data

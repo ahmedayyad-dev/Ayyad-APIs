@@ -19,7 +19,6 @@ from ..utils import (
     AuthenticationError,
     RequestError,
     InvalidInputError,
-    APIConfig,
     with_retry,
 )
 

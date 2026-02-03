@@ -1,7 +1,7 @@
 import logging
 import json
 import re
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from typing import Optional, List, Union, Dict, Any
 
 # Import base classes and utilities
@@ -11,9 +11,6 @@ from ..utils import (
     APIError,
     AuthenticationError,
     RequestError,
-    InvalidInputError,
-    APIConfig,
-    with_retry,
 )
 
 logger = logging.getLogger(__name__)
@@ -24,29 +21,29 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 class SuggestError(APIError):
     """Error raised when suggestion request fails"""
-    def __init__(self, reason: str):
+    def __init__(self, reason: str) -> None:
         super().__init__(f"Suggestion failed: {reason}")
-        self.reason = reason
+        self.reason: str = reason
 
 
 class APIResponseError(RequestError):
     """Error raised when the API does not return a 200 response or provides an error message"""
-    def __init__(self, message: str):
+    def __init__(self, message: str) -> None:
         super().__init__(f"API Error: {message}")
-        self.message = message
+        self.message: str = message
 
 
 class ProcessingError(RequestError):
     """Error raised when response processing fails"""
-    def __init__(self, reason: str):
+    def __init__(self, reason: str) -> None:
         super().__init__(f"Processing failed: {reason}")
-        self.reason = reason
+        self.reason: str = reason
 
 
 # ==================== Data Models ====================
 
 @dataclass
-class SuggestionResult:
+class SuggestionResult(BaseResponse):
     """Result of YouTube search suggestions"""
     query: str
     suggestions: List[str]
@@ -73,7 +70,7 @@ class SuggestionResult:
         Returns:
             Dictionary representation
         """
-        data = {
+        data: Dict[str, Any] = {
             "query": self.query,
             "suggestions": self.suggestions,
             "success": self.success,
@@ -95,6 +92,24 @@ class SuggestionResult:
             JSON string representation
         """
         return json.dumps(self.to_dict(include_raw=include_raw), indent=indent, ensure_ascii=False)
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SuggestionResult":
+        """
+        Create SuggestionResult from dictionary.
+
+        Args:
+            data: Dictionary with query, suggestions, etc.
+
+        Returns:
+            SuggestionResult instance
+        """
+        return cls(
+            query=data.get("query", ""),
+            suggestions=data.get("suggestions", []),
+            raw_response=data.get("raw_response"),
+            success=data.get("success", True)
+        )
 
 
 # ==================== API Client ====================
@@ -132,10 +147,10 @@ class YouTubeSuggestAPI(BaseRapidAPI):
         Process Google's callback-style response and extract suggestions.
 
         Args:
-            response_string (str): Raw response from API
+            response_string: Raw response from API
 
         Returns:
-            List[str]: List of search suggestions
+            List of search suggestions
 
         Raises:
             ProcessingError: If processing fails
@@ -147,16 +162,16 @@ class YouTubeSuggestAPI(BaseRapidAPI):
                 raise ProcessingError("Could not find JSON array in response")
 
             # Parse the JSON array
-            data_list = json.loads(match.group(0))
+            data_list: list = json.loads(match.group(0))
 
             # Extract suggestions array (second element)
             if len(data_list) < 2:
                 raise ProcessingError("Response format unexpected - missing suggestions array")
 
-            suggestions_array = data_list[1]
+            suggestions_array: list = data_list[1]
 
             # Clean and extract suggestion text
-            cleaned_results = [item[0] for item in suggestions_array if isinstance(item, list) and len(item) > 0]
+            cleaned_results: List[str] = [item[0] for item in suggestions_array if isinstance(item, list) and len(item) > 0]
 
             return cleaned_results
 
@@ -167,30 +182,33 @@ class YouTubeSuggestAPI(BaseRapidAPI):
 
     # -------------------- Request Handler --------------------
 
-    async def _request_get(self, endpoint: str, params: dict) -> str:
+    async def _request_text(self, endpoint: str, params: Dict[str, str]) -> str:
         """
-        Send GET request to API.
+        Send GET request to API and return raw text response.
+
+        This API returns text (not JSON), so we can't use _make_request directly.
 
         Args:
-            endpoint (str): API endpoint
-            params (dict): Query parameters
+            endpoint: API endpoint
+            params: Query parameters
 
         Returns:
-            str: Raw response text
+            Raw response text
 
         Raises:
-            APIResponseError: If request fails
+            AuthenticationError: If authentication fails
+            RequestError: If request fails
         """
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
-        url = f"{self.BASE_URL}/{endpoint}"
-        headers = self._get_headers()
+        url: str = f"{self.BASE_URL}/{endpoint}"
+        headers: Dict[str, str] = self._get_headers()
         logger.info(f"GET {url} with params: {params}")
 
         try:
             async with self._session.get(url, headers=headers, params=params) as response:
-                if response.status == 401 or response.status == 403:
+                if response.status in (401, 403):
                     raise AuthenticationError(
                         "Authentication failed",
                         status_code=response.status,
@@ -198,9 +216,9 @@ class YouTubeSuggestAPI(BaseRapidAPI):
                     )
 
                 if response.status != 200:
-                    error_text = await response.text()
+                    error_text: str = await response.text()
                     raise RequestError(
-                        f"Request failed",
+                        "Request failed",
                         status_code=response.status,
                         response_text=error_text,
                         endpoint=endpoint
@@ -221,10 +239,10 @@ class YouTubeSuggestAPI(BaseRapidAPI):
         Get YouTube search suggestions for a query.
 
         Args:
-            query (str): Search query
-            process_response (bool): If True, process and clean the response.
-                                   If False, return raw response string.
-                                   Default: True
+            query: Search query
+            process_response: If True, process and clean the response.
+                             If False, return raw response string.
+                             Default: True
 
         Returns:
             SuggestionResult: If process_response=True, returns structured result
@@ -234,8 +252,8 @@ class YouTubeSuggestAPI(BaseRapidAPI):
             APIResponseError: If the API request fails
             ProcessingError: If process_response=True and processing fails
         """
-        params = {"search_query": query}
-        raw_response = await self._request_get("search", params)
+        params: Dict[str, str] = {"search_query": query}
+        raw_response: str = await self._request_text("search", params)
 
         # If user wants raw response
         if not process_response:
@@ -244,7 +262,7 @@ class YouTubeSuggestAPI(BaseRapidAPI):
 
         # Process the response
         try:
-            suggestions = self._process_google_response(raw_response)
+            suggestions: List[str] = self._process_google_response(raw_response)
             logger.info(f"Found {len(suggestions)} suggestions for query: {query}")
 
             return SuggestionResult(
@@ -264,17 +282,17 @@ class YouTubeSuggestAPI(BaseRapidAPI):
         Get suggestions for multiple queries.
 
         Args:
-            queries (List[str]): List of search queries
-            process_response (bool): If True, process responses. Default: True
+            queries: List of search queries
+            process_response: If True, process responses. Default: True
 
         Returns:
-            List: List of results (SuggestionResult or str depending on process_response)
+            List of results (SuggestionResult or str depending on process_response)
         """
-        results = []
+        results: List[Union[SuggestionResult, str]] = []
 
         for i, query in enumerate(queries):
             try:
-                result = await self.search(query, process_response)
+                result: Union[SuggestionResult, str] = await self.search(query, process_response)
                 results.append(result)
 
                 if process_response and isinstance(result, SuggestionResult):

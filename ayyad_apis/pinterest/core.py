@@ -22,8 +22,6 @@ from ..utils import (
     RequestError,
     InvalidInputError,
     DownloadError,
-    APIConfig,
-    with_retry,
 )
 
 # Configure logging
