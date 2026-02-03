@@ -240,7 +240,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         logger.info(f"Analyzing text: {text[:50]}...")
 
         payload = {"text": text}
-        data = await self._make_request("POST", "/analyze-words", json=payload)
+        data = await self._make_request("POST", "/analyze-text", json=payload)
 
         result = TextAnalysisResult.from_dict(data)
         logger.info(f"Text analysis complete: is_toxic={result.is_toxic}, confidence={result.confidence:.2f}")
