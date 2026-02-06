@@ -21,6 +21,7 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     with_retry,
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 ToxicityDetectorError = APIError
 ToxicityAuthenticationError = AuthenticationError
+ToxicityClientError = ClientError
 ToxicityRequestError = RequestError
 ToxicityInvalidInputError = InvalidInputError
 
@@ -90,6 +92,7 @@ class AudioAnalysisResult(BaseResponse):
     blocked: bool
     confidence: float
     obfuscated_words: List[ObfuscatedWord]
+    message: str = ""
 
     def __post_init__(self) -> None:
         if self.obfuscated_words is None:
@@ -106,7 +109,8 @@ class AudioAnalysisResult(BaseResponse):
             text=data.get("text", ""),
             blocked=data.get("blocked", False),
             confidence=data.get("confidence", 0.0),
-            obfuscated_words=obfuscated_words
+            obfuscated_words=obfuscated_words,
+            message=data.get("message", "")
         )
 
     # to_dict() and to_json() inherited from BaseResponse

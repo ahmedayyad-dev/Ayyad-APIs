@@ -17,6 +17,7 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     with_retry,
@@ -31,6 +32,7 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 TranslatorError = APIError
 TranslatorAuthenticationError = AuthenticationError
+TranslatorClientError = ClientError
 TranslatorRequestError = RequestError
 TranslatorInvalidInputError = InvalidInputError
 

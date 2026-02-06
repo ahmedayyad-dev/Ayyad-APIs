@@ -19,6 +19,7 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     DownloadError,
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 PinterestAPIError = APIError
 PinterestAuthenticationError = AuthenticationError
+PinterestClientError = ClientError
 PinterestDownloadError = DownloadError
 PinterestInvalidURLError = InvalidInputError
 PinterestRequestError = RequestError

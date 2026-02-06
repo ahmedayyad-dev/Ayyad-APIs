@@ -14,6 +14,7 @@ from .core import (
     # Exceptions
     TranslatorError,
     TranslatorAuthenticationError,
+    TranslatorClientError,
     TranslatorRequestError,
     TranslatorInvalidInputError,
 )
@@ -28,6 +29,7 @@ __all__ = [
     # Exceptions
     "TranslatorError",
     "TranslatorAuthenticationError",
+    "TranslatorClientError",
     "TranslatorRequestError",
     "TranslatorInvalidInputError",
 ]

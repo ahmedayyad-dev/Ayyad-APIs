@@ -15,6 +15,7 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     DownloadError as BaseDownloadError,
     APIConfig,

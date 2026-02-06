@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.6"
+__version__ = "0.2.7"
 
 # Import shared utilities
 from .utils import (
@@ -15,6 +15,7 @@ from .utils import (
     # Exception hierarchy
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     DownloadError as DownloadError,
@@ -71,6 +72,7 @@ from .pinterest import (
     PinterestAPI,
     PinterestAPIError,
     PinterestAuthenticationError,
+    PinterestClientError,
     PinterestDownloadError,
     PinterestInvalidURLError,
     PinterestRequestError,
@@ -87,6 +89,7 @@ from .alltube_extractor import (
     AllTubeAPI,
     AllTubeError,
     AllTubeAuthenticationError,
+    AllTubeClientError,
     AllTubeRequestError,
     AllTubeInvalidURLError,
 )
@@ -95,6 +98,7 @@ from .toxicity_detector import (
     ToxicityDetectorAPI,
     ToxicityDetectorError,
     ToxicityAuthenticationError,
+    ToxicityClientError,
     ToxicityRequestError,
     ToxicityInvalidInputError,
     ObfuscatedWord,
@@ -106,6 +110,7 @@ from .translator import (
     TranslatorAPI,
     TranslatorError,
     TranslatorAuthenticationError,
+    TranslatorClientError,
     TranslatorRequestError,
     TranslatorInvalidInputError,
     TranslationResult,
@@ -126,6 +131,7 @@ __all__ = [
     # Exception Hierarchy
     "APIError",
     "AuthenticationError",
+    "ClientError",
     "RequestError",
     "InvalidInputError",
     "DownloadError",
@@ -178,6 +184,7 @@ __all__ = [
     "PinterestAPI",
     "PinterestAPIError",
     "PinterestAuthenticationError",
+    "PinterestClientError",
     "PinterestDownloadError",
     "PinterestInvalidURLError",
     "PinterestRequestError",
@@ -193,6 +200,7 @@ __all__ = [
     "AllTubeAPI",
     "AllTubeError",
     "AllTubeAuthenticationError",
+    "AllTubeClientError",
     "AllTubeRequestError",
     "AllTubeInvalidURLError",
 
@@ -200,6 +208,7 @@ __all__ = [
     "ToxicityDetectorAPI",
     "ToxicityDetectorError",
     "ToxicityAuthenticationError",
+    "ToxicityClientError",
     "ToxicityRequestError",
     "ToxicityInvalidInputError",
     "ObfuscatedWord",
@@ -210,6 +219,7 @@ __all__ = [
     "TranslatorAPI",
     "TranslatorError",
     "TranslatorAuthenticationError",
+    "TranslatorClientError",
     "TranslatorRequestError",
     "TranslatorInvalidInputError",
     "TranslationResult",

@@ -27,6 +27,7 @@ from .core import (
     # Exceptions
     AllTubeError,
     AllTubeAuthenticationError,
+    AllTubeClientError,
     AllTubeRequestError,
     AllTubeInvalidURLError,
 )
@@ -38,6 +39,7 @@ __all__ = [
     # Exceptions
     "AllTubeError",
     "AllTubeAuthenticationError",
+    "AllTubeClientError",
     "AllTubeRequestError",
     "AllTubeInvalidURLError",
 ]

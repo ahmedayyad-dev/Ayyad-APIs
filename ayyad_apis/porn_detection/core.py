@@ -12,6 +12,7 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     APIConfig,

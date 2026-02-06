@@ -16,6 +16,7 @@ from ..utils import (
     BaseRapidAPI,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
 )
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 AllTubeError = APIError
 AllTubeAuthenticationError = AuthenticationError
+AllTubeClientError = ClientError
 AllTubeRequestError = RequestError
 AllTubeInvalidURLError = InvalidInputError
 

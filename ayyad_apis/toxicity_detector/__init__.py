@@ -16,6 +16,7 @@ from .core import (
     # Exceptions
     ToxicityDetectorError,
     ToxicityAuthenticationError,
+    ToxicityClientError,
     ToxicityRequestError,
     ToxicityInvalidInputError,
 )
@@ -32,6 +33,7 @@ __all__ = [
     # Exceptions
     "ToxicityDetectorError",
     "ToxicityAuthenticationError",
+    "ToxicityClientError",
     "ToxicityRequestError",
     "ToxicityInvalidInputError",
 ]

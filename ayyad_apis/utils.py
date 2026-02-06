@@ -59,7 +59,8 @@ def create_rapidapi_headers(
 async def validate_rapidapi_response(
     response: aiohttp.ClientResponse,
     auth_error_class: Type[Exception],
-    request_error_class: Type[Exception]
+    request_error_class: Type[Exception],
+    client_error_class: Optional[Type[Exception]] = None
 ) -> Dict[str, Any]:
     """
     Validate RapidAPI response and handle common errors.
@@ -70,32 +71,47 @@ async def validate_rapidapi_response(
     Args:
         response: aiohttp ClientResponse object
         auth_error_class: Exception class to raise for authentication errors (401/403)
-        request_error_class: Exception class to raise for other request errors
+        request_error_class: Exception class to raise for server errors (5xx)
+        client_error_class: Exception class to raise for client errors (4xx, excluding 401/403)
 
     Returns:
         Parsed JSON response as dictionary
 
     Raises:
         auth_error_class: If authentication fails (401/403)
-        request_error_class: If request fails (other status codes)
+        client_error_class: If client error (4xx) - should NOT be retried
+        request_error_class: If server error (5xx) - can be retried
 
     Example:
         async with session.get(url) as response:
             data = await validate_rapidapi_response(
                 response,
                 MyAuthError,
-                MyRequestError
+                MyRequestError,
+                MyClientError
             )
     """
     # Check for authentication errors
     if response.status in (401, 403):
         raise auth_error_class(f"Authentication failed: {response.status}")
 
-    # Check for other errors
-    if response.status != 200:
+    # Check for client errors (4xx) - should NOT be retried
+    if 400 <= response.status < 500:
+        error_text = await response.text()
+        error_class = client_error_class or request_error_class
+        raise error_class(
+            f"Client error {response.status}: {error_text}",
+            status_code=response.status,
+            response_text=error_text
+        )
+
+    # Check for server errors (5xx) - can be retried
+    if response.status >= 500:
         error_text = await response.text()
         raise request_error_class(
-            f"Request failed with status {response.status}: {error_text}"
+            f"Server error {response.status}: {error_text}",
+            status_code=response.status,
+            response_text=error_text
         )
 
     # Parse JSON response
@@ -422,8 +438,13 @@ class AuthenticationError(APIError):
     pass
 
 
+class ClientError(APIError):
+    """Raised for client errors (4xx) - should NOT be retried."""
+    pass
+
+
 class RequestError(APIError):
-    """Raised when API request fails."""
+    """Raised when API request fails (5xx or network errors) - can be retried."""
     pass
 
 
@@ -524,7 +545,8 @@ def with_retry(
     max_attempts: int = 3,
     delay: float = 2.0,
     backoff: float = 2.0,
-    exceptions: Optional[Tuple[Type[Exception], ...]] = None
+    exceptions: Optional[Tuple[Type[Exception], ...]] = None,
+    no_retry_exceptions: Optional[Tuple[Type[Exception], ...]] = None
 ) -> Callable:
     """
     Decorator for automatic retry logic with exponential backoff.
@@ -534,6 +556,7 @@ def with_retry(
         delay: Initial delay between retries in seconds (default: 2.0)
         backoff: Multiplier for delay after each retry (default: 2.0)
         exceptions: Tuple of exceptions to catch and retry (default: RequestError, aiohttp.ClientError)
+        no_retry_exceptions: Exceptions that should NOT be retried (default: ClientError, AuthenticationError)
 
     Example:
         @with_retry(max_attempts=5, delay=1.0, backoff=2.0)
@@ -544,10 +567,18 @@ def with_retry(
         # Second attempt fails -> wait 2.0s -> retry
         # Third attempt fails -> wait 4.0s -> retry
         # etc.
+
+    Note:
+        ClientError (4xx) and AuthenticationError are never retried as they
+        indicate client-side issues that won't be resolved by retrying.
     """
     # Default exceptions if not provided
     if exceptions is None:
-        exceptions = (RequestError, aiohttp.ClientError)
+        exceptions = (RequestError, aiohttp.ClientError, ClientError, AuthenticationError)
+
+    # Exceptions that should NOT be retried
+    if no_retry_exceptions is None:
+        no_retry_exceptions = (ClientError, AuthenticationError)
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -558,6 +589,9 @@ def with_retry(
             for attempt in range(max_attempts):
                 try:
                     return await func(*args, **kwargs)
+                except no_retry_exceptions:
+                    # Don't retry client errors or auth errors - re-raise immediately
+                    raise
                 except exceptions as e:
                     last_exception = e
 
@@ -868,7 +902,8 @@ class BaseRapidAPI(ABC):
                 return await validate_rapidapi_response(
                     response,
                     AuthenticationError,
-                    RequestError
+                    RequestError,
+                    ClientError
                 )
         except aiohttp.ClientError as e:
             logger.error(f"Request error: {str(e)}")
