@@ -9,7 +9,7 @@ Author: Ahmed Ayyad
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any, Union
+from typing import List, Dict, Any, Union
 from pathlib import Path
 
 import aiohttp
@@ -42,17 +42,17 @@ ToxicityInvalidInputError = InvalidInputError
 # ==================== Data Models ====================
 
 @dataclass
-class BlockedWord(BaseResponse):
-    """Represents a blocked/toxic word with obfuscation details."""
-    obfuscated: str
-    clean: str
+class ObfuscatedWord(BaseResponse):
+    """Represents an obfuscated word with original and corrected forms."""
+    original: str
+    corrected: str
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BlockedWord":
-        """Create BlockedWord from API response dictionary."""
+    def from_dict(cls, data: Dict[str, Any]) -> "ObfuscatedWord":
+        """Create ObfuscatedWord from API response dictionary."""
         return cls(
-            obfuscated=data.get("obfuscated", ""),
-            clean=data.get("clean", "")
+            original=data.get("original", ""),
+            corrected=data.get("corrected", "")
         )
 
     # to_dict() and to_json() inherited from BaseResponse
@@ -61,21 +61,23 @@ class BlockedWord(BaseResponse):
 @dataclass
 class TextAnalysisResult(BaseResponse):
     """Result from text toxicity analysis."""
+    blocked: bool
     confidence: float
-    is_toxic: bool
-    words: List[BlockedWord]
+    obfuscated_words: List[ObfuscatedWord]
+    message: str = ""
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "TextAnalysisResult":
         """Create TextAnalysisResult from API response dictionary."""
-        words: List[BlockedWord] = []
-        if "words" in data and isinstance(data["words"], list):
-            words = [BlockedWord.from_dict(w) for w in data["words"]]
+        obfuscated_words: List[ObfuscatedWord] = []
+        if "obfuscated_words" in data and isinstance(data["obfuscated_words"], list):
+            obfuscated_words = [ObfuscatedWord.from_dict(w) for w in data["obfuscated_words"]]
 
         return cls(
+            blocked=data.get("blocked", False),
             confidence=data.get("confidence", 0.0),
-            is_toxic=data.get("is_toxic", False),
-            words=words
+            obfuscated_words=obfuscated_words,
+            message=data.get("message", "")
         )
 
     # to_dict() and to_json() inherited from BaseResponse
@@ -84,29 +86,27 @@ class TextAnalysisResult(BaseResponse):
 @dataclass
 class AudioAnalysisResult(BaseResponse):
     """Result from audio toxicity analysis."""
-    success: bool
-    message: Optional[str] = None
-    confidence: Optional[float] = None
-    is_toxic: Optional[bool] = None
-    words: Optional[List[BlockedWord]] = None
+    text: str
+    blocked: bool
+    confidence: float
+    obfuscated_words: List[ObfuscatedWord]
 
     def __post_init__(self) -> None:
-        if self.words is None:
-            self.words = []
+        if self.obfuscated_words is None:
+            self.obfuscated_words = []
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AudioAnalysisResult":
         """Create AudioAnalysisResult from API response dictionary."""
-        words: List[BlockedWord] = []
-        if "words" in data and isinstance(data["words"], list):
-            words = [BlockedWord.from_dict(w) for w in data["words"]]
+        obfuscated_words: List[ObfuscatedWord] = []
+        if "obfuscated_words" in data and isinstance(data["obfuscated_words"], list):
+            obfuscated_words = [ObfuscatedWord.from_dict(w) for w in data["obfuscated_words"]]
 
         return cls(
-            success=data.get("success", False),
-            message=data.get("message"),
-            confidence=data.get("confidence"),
-            is_toxic=data.get("is_toxic"),
-            words=words
+            text=data.get("text", ""),
+            blocked=data.get("blocked", False),
+            confidence=data.get("confidence", 0.0),
+            obfuscated_words=obfuscated_words
         )
 
     # to_dict() and to_json() inherited from BaseResponse
@@ -131,12 +131,13 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         async with ToxicityDetectorAPI(api_key="your_key") as client:
             # Analyze text
             result = await client.analyze_text("نص للتحليل")
-            print(f"Is toxic: {result.is_toxic}")
+            print(f"Blocked: {result.blocked}")
             print(f"Confidence: {result.confidence}")
 
             # Analyze audio
             audio_result = await client.analyze_audio("path/to/audio.mp3")
-            print(f"Audio is toxic: {audio_result.is_toxic}")
+            print(f"Transcribed: {audio_result.text}")
+            print(f"Audio blocked: {audio_result.blocked}")
 
             # Use with config
             config = APIConfig(api_key="key", max_retries=5)
@@ -222,7 +223,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
             text: Text to analyze (Arabic or English)
 
         Returns:
-            TextAnalysisResult with toxicity classification and blocked words
+            TextAnalysisResult with toxicity classification and obfuscated words
 
         Raises:
             ToxicityInvalidInputError: If text is empty or invalid
@@ -230,10 +231,10 @@ class ToxicityDetectorAPI(BaseRapidAPI):
 
         Example:
             result = await client.analyze_text("نص للتحليل")
-            if result.is_toxic:
-                print(f"Toxic with {result.confidence*100}% confidence")
-                for word in result.words:
-                    print(f"  - {word.obfuscated} -> {word.clean}")
+            if result.blocked:
+                print(f"Blocked with {result.confidence*100}% confidence")
+                for word in result.obfuscated_words:
+                    print(f"  - {word.original} -> {word.corrected}")
         """
         if not text or not text.strip():
             raise InvalidInputError("Text cannot be empty")
@@ -244,32 +245,34 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         data: Dict[str, Any] = await self._make_request("POST", "/analyze-text", json=payload)
 
         result: TextAnalysisResult = TextAnalysisResult.from_dict(data)
-        logger.info(f"Text analysis complete: is_toxic={result.is_toxic}, confidence={result.confidence:.2f}")
+        logger.info(f"Text analysis complete: blocked={result.blocked}, confidence={result.confidence:.2f}")
         return result
 
     async def analyze_audio(
         self,
-        audio_path: Union[str, Path],
-        language: str = "ar"
+        audio_path: Union[str, Path]
     ) -> AudioAnalysisResult:
         """
         Analyze audio file for toxicity.
 
+        Supported formats: mp3, wav, m4a, ogg, flac, webm.
+        The API auto-detects language (Arabic or English).
+
         Args:
-            audio_path: Path to audio file (MP3, WAV, etc.)
-            language: Language code ('ar' for Arabic, 'en' for English)
+            audio_path: Path to audio file
 
         Returns:
-            AudioAnalysisResult with toxicity classification
+            AudioAnalysisResult with transcribed text and toxicity classification
 
         Raises:
             ToxicityInvalidInputError: If file doesn't exist
             ToxicityRequestError: If request fails
 
         Example:
-            result = await client.analyze_audio("audio.mp3", language="ar")
-            if result.success and result.is_toxic:
-                print(f"Audio contains toxic content: {result.confidence*100}% confidence")
+            result = await client.analyze_audio("audio.mp3")
+            print(f"Transcribed: {result.text}")
+            if result.blocked:
+                print(f"Audio blocked with {result.confidence*100}% confidence")
         """
         audio_path = Path(audio_path)
 
@@ -288,40 +291,24 @@ class ToxicityDetectorAPI(BaseRapidAPI):
                 filename=audio_path.name,
                 content_type='audio/mpeg'
             )
-        form.add_field('language', language)
 
         data: Dict[str, Any] = await self._make_request_with_file("/analyze-audio", form)
 
         result: AudioAnalysisResult = AudioAnalysisResult.from_dict(data)
-        logger.info(f"Audio analysis complete: success={result.success}")
+        logger.info(f"Audio analysis complete: blocked={result.blocked}")
         return result
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def get_api_info(self) -> Dict[str, Any]:
         """
-        Check API health status.
+        Get API information and available endpoints.
 
         Returns:
-            Dictionary with health status information
+            Dictionary with API info and endpoints
 
         Example:
-            health = await client.health_check()
-            print(f"API Status: {health['status']}")
+            info = await client.get_api_info()
+            print(f"API: {info['name']} v{info['version']}")
         """
-        data: Dict[str, Any] = await self._make_request("GET", "/health")
-        logger.info("Health check successful")
-        return data
-
-    async def model_info(self) -> Dict[str, Any]:
-        """
-        Get model information.
-
-        Returns:
-            Dictionary with model information
-
-        Example:
-            info = await client.model_info()
-            print(f"Model info: {info}")
-        """
-        data: Dict[str, Any] = await self._make_request("GET", "/model-info")
-        logger.info("Model info retrieved")
+        data: Dict[str, Any] = await self._make_request("GET", "/")
+        logger.info("API info retrieved")
         return data

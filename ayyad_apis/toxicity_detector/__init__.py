@@ -9,7 +9,7 @@ from .core import (
     ToxicityDetectorAPI,
 
     # Data Models
-    BlockedWord,
+    ObfuscatedWord,
     TextAnalysisResult,
     AudioAnalysisResult,
 
@@ -25,7 +25,7 @@ __all__ = [
     "ToxicityDetectorAPI",
 
     # Data Models
-    "BlockedWord",
+    "ObfuscatedWord",
     "TextAnalysisResult",
     "AudioAnalysisResult",
 

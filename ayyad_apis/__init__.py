@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 # Import shared utilities
 from .utils import (
@@ -97,7 +97,7 @@ from .toxicity_detector import (
     ToxicityAuthenticationError,
     ToxicityRequestError,
     ToxicityInvalidInputError,
-    BlockedWord,
+    ObfuscatedWord,
     TextAnalysisResult,
     AudioAnalysisResult,
 )
@@ -202,7 +202,7 @@ __all__ = [
     "ToxicityAuthenticationError",
     "ToxicityRequestError",
     "ToxicityInvalidInputError",
-    "BlockedWord",
+    "ObfuscatedWord",
     "TextAnalysisResult",
     "AudioAnalysisResult",
 

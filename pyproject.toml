@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ayyad_apis"
-version = "0.2.5"
+dynamic = ["version"]
 description = "Collection of Python wrappers"
 readme = "README.md"
 license = "MIT"
@@ -23,6 +23,9 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ahmedayyad-dev/Ayyad-APIs"
+
+[tool.setuptools.dynamic]
+version = {attr = "ayyad_apis.__version__"}
 
 [tool.setuptools.packages.find]
 include = ["ayyad_apis*"]
