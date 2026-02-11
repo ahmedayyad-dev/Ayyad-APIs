@@ -243,7 +243,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         if not text or not text.strip():
             raise InvalidInputError("Text cannot be empty")
 
-        logger.info(f"Analyzing text: {text[:50]}...")
+        logger.info(f"Analyzing text: {text}...")
 
         payload: Dict[str, str] = {"text": text}
         data: Dict[str, Any] = await self._make_request("POST", "/analyze-text", json=payload)
@@ -252,6 +252,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
         logger.info(f"Text analysis complete: blocked={result.blocked}, confidence={result.confidence:.2f}")
         return result
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def analyze_audio(
         self,
         audio_path: Union[str, Path]

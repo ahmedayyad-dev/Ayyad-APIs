@@ -19,6 +19,7 @@ from ..utils import (
     ClientError,
     RequestError,
     InvalidInputError,
+    with_retry,
 )
 
 try:
@@ -92,6 +93,7 @@ class AllTubeAPI(BaseRapidAPI):
 
     # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
+    @with_retry(max_attempts=3, delay=1.0)
     async def get_info(self, url: str, yt_dlp_opts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Extract video information from a URL.

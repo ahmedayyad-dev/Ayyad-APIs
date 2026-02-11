@@ -1,3 +1,12 @@
+"""
+Porn Detection API wrapper for detecting NSFW content in images and videos.
+
+This module provides a simple async interface to interact with Porn Detection API
+through RapidAPI, allowing users to detect pornographic content in images and videos.
+
+Author: Ahmed Ayyad
+"""
+
 import logging
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -24,28 +33,9 @@ logger = logging.getLogger(__name__)
 
 # ==================== Exception Aliases (Backward Compatibility) ====================
 
-class DetectionError(APIError):
-    """Error raised when detection process fails"""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(f"Detection failed: {reason}")
-        self.reason: str = reason
-
-
-class APIResponseError(RequestError):
-    """Error raised when the API does not return a 200 response or provides an error message"""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(f"API Error: {message}")
-        self.message: str = message
-
-
-class UploadError(RequestError):
-    """Error raised when file upload fails"""
-
-    def __init__(self, reason: str) -> None:
-        super().__init__(f"Upload failed: {reason}")
-        self.reason: str = reason
+DetectionError = APIError
+APIResponseError = RequestError
+UploadError = RequestError
 
 
 # ==================== Video Analysis Configuration ====================

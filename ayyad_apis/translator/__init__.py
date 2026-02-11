@@ -1,17 +1,10 @@
-"""
-AI Translator API module for fast and accurate text translation.
-
-This module provides async access to AI-powered translation through RapidAPI.
-"""
+"""AI Translator API module."""
 
 from .core import (
-    # Main API Client
     TranslatorAPI,
-
-    # Data Models
     TranslationResult,
-
-    # Exceptions
+    ConversationTranslationResult,
+    ChatMessage,
     TranslatorError,
     TranslatorAuthenticationError,
     TranslatorClientError,
@@ -20,13 +13,10 @@ from .core import (
 )
 
 __all__ = [
-    # Main API Client
     "TranslatorAPI",
-
-    # Data Models
     "TranslationResult",
-
-    # Exceptions
+    "ConversationTranslationResult",
+    "ChatMessage",
     "TranslatorError",
     "TranslatorAuthenticationError",
     "TranslatorClientError",

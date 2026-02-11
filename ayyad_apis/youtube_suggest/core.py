@@ -1,3 +1,12 @@
+"""
+YouTube Suggest API wrapper for getting YouTube search suggestions.
+
+This module provides a simple async interface to interact with YouTube Suggest API
+through RapidAPI, allowing users to get search suggestions for any query.
+
+Author: Ahmed Ayyad
+"""
+
 import logging
 import json
 import re
@@ -19,26 +28,9 @@ logger = logging.getLogger(__name__)
 
 # ==================== Exception Aliases (Backward Compatibility) ====================
 
-# Create aliases for backward compatibility
-class SuggestError(APIError):
-    """Error raised when suggestion request fails"""
-    def __init__(self, reason: str) -> None:
-        super().__init__(f"Suggestion failed: {reason}")
-        self.reason: str = reason
-
-
-class APIResponseError(RequestError):
-    """Error raised when the API does not return a 200 response or provides an error message"""
-    def __init__(self, message: str) -> None:
-        super().__init__(f"API Error: {message}")
-        self.message: str = message
-
-
-class ProcessingError(RequestError):
-    """Error raised when response processing fails"""
-    def __init__(self, reason: str) -> None:
-        super().__init__(f"Processing failed: {reason}")
-        self.reason: str = reason
+SuggestError = APIError
+APIResponseError = RequestError
+ProcessingError = RequestError
 
 
 # ==================== Data Models ====================
@@ -61,38 +53,7 @@ class SuggestionResult(BaseResponse):
         """Check if any suggestions were found"""
         return self.count > 0
 
-    def to_dict(self, include_raw: bool = False) -> Dict[str, Any]:
-        """
-        Convert to dictionary.
-
-        Args:
-            include_raw: If True, includes raw_response
-
-        Returns:
-            Dictionary representation
-        """
-        data: Dict[str, Any] = {
-            "query": self.query,
-            "suggestions": self.suggestions,
-            "success": self.success,
-            "count": self.count
-        }
-        if include_raw:
-            data["raw_response"] = self.raw_response
-        return data
-
-    def to_json(self, indent: Optional[int] = None, include_raw: bool = False) -> str:
-        """
-        Convert to JSON string.
-
-        Args:
-            indent: Number of spaces for indentation (None for compact JSON)
-            include_raw: If True, includes raw_response
-
-        Returns:
-            JSON string representation
-        """
-        return json.dumps(self.to_dict(include_raw=include_raw), indent=indent, ensure_ascii=False)
+    # to_dict() and to_json() inherited from BaseResponse
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SuggestionResult":
@@ -141,7 +102,7 @@ class YouTubeSuggestAPI(BaseRapidAPI):
 
     # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
-    # -------------------- Response Processing --------------------
+    # ==================== Response Processing ====================
 
     def _process_google_response(self, response_string: str) -> List[str]:
         """
@@ -181,7 +142,7 @@ class YouTubeSuggestAPI(BaseRapidAPI):
         except (IndexError, KeyError) as e:
             raise ProcessingError(f"Unexpected response structure: {str(e)}")
 
-    # -------------------- Request Handler --------------------
+    # ==================== Request Handler ====================
 
     async def _request_text(self, endpoint: str, params: Dict[str, str]) -> str:
         """
@@ -233,7 +194,7 @@ class YouTubeSuggestAPI(BaseRapidAPI):
             logger.error(f"Request error: {str(e)}")
             raise RequestError(f"Network error: {str(e)}", endpoint=endpoint, original_error=e)
 
-    # -------------------- Public Methods --------------------
+    # ==================== Public Methods ====================
 
     async def search(self, query: str, process_response: bool = True) -> Union[SuggestionResult, str]:
         """

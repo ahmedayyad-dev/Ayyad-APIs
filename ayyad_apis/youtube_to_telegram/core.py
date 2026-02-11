@@ -1,3 +1,13 @@
+"""
+YouTube to Telegram API wrapper for downloading and uploading YouTube videos.
+
+This module provides a simple async interface to interact with YouTube to Telegram API
+through RapidAPI, allowing users to download YouTube videos to server, upload them to
+Telegram, get video info, search, and access live streams.
+
+Author: Ahmed Ayyad
+"""
+
 from __future__ import annotations
 
 import asyncio
