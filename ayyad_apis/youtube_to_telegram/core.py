@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import logging
 import json
-import aiohttp
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Any
 import asyncio
 
 # Import base classes and utilities
@@ -50,8 +49,6 @@ class Channel(BaseResponse):
     thumbnails: List[dict] = None
     link: str = None
 
-    # to_dict() and to_json() inherited from BaseResponse
-
 
 @dataclass
 class Video(BaseResponse):
@@ -88,8 +85,6 @@ class Video(BaseResponse):
             return f"{self.view_count / 1_000:.1f}K"
         return str(self.view_count)
 
-    # to_dict() and to_json() inherited from BaseResponse
-
 
 @dataclass
 class VideoInfoResponse(BaseResponse):
@@ -112,101 +107,143 @@ class VideoInfoResponse(BaseResponse):
     webpage_url_domain: str = None
     formats: List[dict] = None
 
-    # to_dict() and to_json() inherited from BaseResponse
-
 
 @dataclass
-class TelegramResponse(Video):
+class TelegramResponse(BaseResponse):
     """Response when uploading YouTube video to Telegram"""
+    success: bool = False
     file_url: str = None
     message_id: int = None
     chat_username: str = None
-
-
+    job_id: Optional[str] = None
+    status: Optional[str] = None
+    progress_url: Optional[str] = None
+    warning: Optional[str] = None
 
 
 @dataclass
 class DownloadResult(BaseResponse):
     """Represents result of a local file download"""
-    file_path: str
-    file_size: int
-
-    # to_dict() and to_json() inherited from BaseResponse
+    file_path: str = None
+    file_size: int = None
 
 
 @dataclass
 class LiveStream(BaseResponse):
-    """Represents a live stream (HLS/MP4)"""
-    url: str
+    """Represents a live stream (HLS/MP4) or streaming URL"""
+    success: bool = True
+    url: str = None
+    warning: Optional[str] = None
 
-    # to_dict() and to_json() inherited from BaseResponse
+
+@dataclass
+class TryAfterResponse(BaseResponse):
+    """Response when download is queued for background processing (HTTP 425)"""
+    success: bool = False
+    message: str = None
+    try_after: Optional[int] = None
+    job_id: Optional[str] = None
+    status: Optional[str] = None
+    progress_url: Optional[str] = None
+
+
+@dataclass
+class DownloadProgressResponse(BaseResponse):
+    """Response for /download_progress endpoint"""
+    success: bool = True
+    job_id: str = None
+    status: str = None
+    percentage: Optional[float] = None
+    video_id: Optional[str] = None
+    result: Optional[dict] = None
+    error: Optional[str] = None
+    timestamp: Optional[float] = None
+    # downloading-status extra fields
+    downloaded_bytes: Optional[int] = None
+    total_bytes: Optional[int] = None
+    speed: Optional[float] = None
+    eta: Optional[float] = None
+    message: Optional[str] = None
 
 
 @dataclass
 class ServerDownloadField(BaseResponse):
-    """Download field returned in youtube_to_server endpoint"""
-    download_url: str
-
-
-@dataclass
-class Thumbnail(BaseResponse):
-    """Thumbnail information"""
-    url: str = None
-    width: int = None
-    height: int = None
-
-
-@dataclass
-class ViewCount(BaseResponse):
-    """View count information"""
-    text: str = None
-    short: str = None
-
-
-@dataclass
-class Accessibility(BaseResponse):
-    """Accessibility information"""
-    title: str = None
-    duration: str = None
-
-
-@dataclass
-class VideoSearchResult(BaseResponse):
-    """Single video result"""
-    type: str = None
-    id: str = None
-    title: str = None
-    publishedTime: str = None
-    duration: str = None
-    viewCount: ViewCount = None
-    thumbnails: List[Thumbnail] = None
-    richThumbnail: Optional[dict] = None
-    descriptionSnippet: List[dict] = None
-    channel: Channel = None
-    accessibility: Accessibility = None
-    link: str = None
-    shelfTitle: Optional[str] = None
+    """Kept for backward compatibility — now download_url is a top-level field"""
+    download_url: str = None
 
 
 @dataclass
 class ServerResponse(Video):
-    """Response for /youtube_to_server"""
-    download: ServerDownloadField = None
+    """Response for /youtube_to_server — includes a temporary download URL (valid 10 min)"""
+    download_url: str = None
+    key: Optional[str] = None
+    job_id: Optional[str] = None
+    status: Optional[str] = None
+    progress_url: Optional[str] = None
+    warning: Optional[str] = None
     _api_instance: Optional[YouTubeAPI] = None
+
+    # Backward-compat: expose old-style .download attribute
+    @property
+    def download(self) -> Optional[ServerDownloadField]:
+        if self.download_url:
+            return ServerDownloadField(download_url=self.download_url)
+        return None
 
     async def download_file(self, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
         if not self._api_instance:
             raise DownloadError("API instance not available")
+        if not self.download_url:
+            raise DownloadError("No download URL available")
         logger.info(f"Downloading file to {file_path} from server...")
 
-        # Use instance defaults if not specified
         retries = max_retries if max_retries is not None else self._api_instance._max_retries
         delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
 
-        return await self._api_instance.download_file(self.download.download_url, file_path, retries, delay)
+        return await self._api_instance.download_file(self.download_url, file_path, retries, delay)
 
 
+@dataclass
+class VideoSearchResult(BaseResponse):
+    """Single video result from /search"""
+    title: str = None
+    videoId: str = None           # canonical field (replaces old `id`)
+    link: str = None
+    thumbnails: Optional[List[dict]] = None
+    channel: Optional[dict] = None
+    duration: Optional[dict] = None
+    viewCount: Optional[dict] = None
+    publishedTime: Optional[str] = None
+    descriptionSnippet: Optional[Any] = None
+    # Legacy fields kept for backward compatibility
+    id: Optional[str] = None
+    type: Optional[str] = None
+    richThumbnail: Optional[dict] = None
+    shelfTitle: Optional[str] = None
+
+
+class BackgroundJobError(RequestError):
+    """Raised when the API returns HTTP 425 — download is queued in background.
+
+    Access the structured response via ``exception.response``.
+
+    Example::
+
+        try:
+            result = await api.youtube_to_telegram("dQw4w9WgXcQ")
+        except BackgroundJobError as e:
+            print(f"Queued. Retry after {e.response.try_after}s")
+            print(f"Track progress: {e.response.progress_url}")
+            print(f"Job ID: {e.response.job_id}")
+    """
+
+    def __init__(self, response: TryAfterResponse):
+        self.response = response
+        super().__init__(
+            response.message or "Download is queued for background processing",
+            status_code=425,
+        )
 
 
 # ==================== API Client ====================
@@ -215,68 +252,65 @@ class YouTubeAPI(BaseRapidAPI):
     """
     API client wrapper for YouTube to Telegram/Server/Host endpoints.
 
-    Inherits from BaseRapidAPI for common functionality including:
-    - Session management
-    - Header creation
-    - Response validation
-    - Error handling
+    Parameters:
+        api_key: RapidAPI key.
+        timeout: Request timeout in seconds (default 300).
+        max_retries: Retry attempts for downloads (default 5).
+        retry_delay: Seconds between retries (default 1.0).
+        cookies: Netscape-format cookie string sent as X-Cookies header.
+        wait_for_background: **Default True.** When the API queues a heavy job
+            in the background (HTTP 425), the client automatically waits and
+            polls until the job finishes, then returns the final result.
+            Set to ``False`` to raise ``BackgroundJobError`` immediately instead,
+            giving you full control over the retry logic.
 
-    Example:
+    Example — default (auto-wait)::
+
         async with YouTubeAPI(api_key="key") as client:
-            result = await client.youtube_to_telegram("https://youtube.com/watch?v=...")
-            print(result.video_title)
+            # If the API needs time, the client waits automatically
+            result = await client.youtube_to_telegram("dQw4w9WgXcQ")
+            print(result.file_url)
 
-            # Use with config
-            config = APIConfig(api_key="key", timeout=300, max_retries=5)
-            async with YouTubeAPI(config=config) as client:
-                result = await client.youtube_to_telegram("url")
+    Example — manual retry (wait_for_background=False)::
+
+        async with YouTubeAPI(api_key="key", wait_for_background=False) as client:
+            try:
+                result = await client.youtube_to_telegram("dQw4w9WgXcQ")
+            except BackgroundJobError as e:
+                print(f"Job queued. Retry after {e.response.try_after}s")
+                print(f"Track: {e.response.progress_url}")
     """
 
     BASE_URL = "https://youtube-to-telegram-uploader-api.p.rapidapi.com"
     DEFAULT_HOST = "youtube-to-telegram-uploader-api.p.rapidapi.com"
 
     def __init__(self, api_key: str, timeout: int = 300, max_retries: int = 5, retry_delay: float = 1.0,
-                 max_wait_time: int = 0, config: Optional[APIConfig] = None):
-        # Call parent __init__
+                 max_wait_time: int = 0, cookies: Optional[str] = None, config: Optional[APIConfig] = None,
+                 wait_for_background: bool = True):
         super().__init__(api_key=api_key, timeout=timeout, config=config)
 
-        # Store additional YouTube-specific config
         self._max_retries = max_retries
         self._retry_delay = retry_delay
         self._max_wait_time = max_wait_time
-
-    # __aenter__ and __aexit__ inherited from BaseRapidAPI
+        self._cookies = cookies
+        self._wait_for_background = wait_for_background
 
     def _parse_response_data(self, data: dict, response_class):
         """Helper to convert API response into dataclass objects"""
 
-        parsed_data = data.copy()  # Copy to avoid mutating original data
+        parsed_data = data.copy()
 
-        # Handle nested objects depending on response class
         if response_class == ServerResponse:
-            if 'download' in parsed_data and isinstance(parsed_data['download'], dict):
-                parsed_data['download'] = ServerDownloadField(**parsed_data['download'])
             parsed_data['_api_instance'] = self
 
-        elif response_class == TelegramResponse:
-            # No special handling needed
-            pass
-
         elif response_class == VideoSearchResult:
-            # Handle search result nested objects
-            if 'viewCount' in parsed_data and isinstance(parsed_data['viewCount'], dict):
-                parsed_data['viewCount'] = ViewCount(**parsed_data['viewCount'])
+            # Normalise: `videoId` is canonical, keep `id` for backward compat
+            if 'videoId' in parsed_data and not parsed_data.get('id'):
+                parsed_data['id'] = parsed_data['videoId']
+            elif 'id' in parsed_data and not parsed_data.get('videoId'):
+                parsed_data['videoId'] = parsed_data['id']
 
-            if 'thumbnails' in parsed_data and isinstance(parsed_data['thumbnails'], list):
-                parsed_data['thumbnails'] = [Thumbnail(**thumb) for thumb in parsed_data['thumbnails']]
-
-            if 'channel' in parsed_data and isinstance(parsed_data['channel'], dict):
-                parsed_data['channel'] = Channel(**parsed_data['channel'])
-
-            if 'accessibility' in parsed_data and isinstance(parsed_data['accessibility'], dict):
-                parsed_data['accessibility'] = Accessibility(**parsed_data['accessibility'])
-
-        # Handle common Video fields present in almost all responses
+        # Handle common Video fields present in most responses
         if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
             uploader_data = parsed_data['uploader'].copy()
             if 'channel_name' in uploader_data:
@@ -313,20 +347,69 @@ class YouTubeAPI(BaseRapidAPI):
         except TypeError as e:
             logger.warning(f"Failed to create {response_class.__name__} with data: {parsed_data}")
             logger.warning(f"Error: {e}")
-            # Return a safe instance with default values
             safe_data = {}
             for field_name, field_info in response_class.__dataclass_fields__.items():
                 safe_data[field_name] = parsed_data.get(field_name,
                                                         field_info.default if field_info.default is not None else None)
             return response_class(**safe_data)
 
-    async def _request(self, endpoint: str, params: dict) -> dict:
+    async def _wait_for_completion(self, job_id: Optional[str], try_after: int, endpoint: str) -> dict:
+        """Poll /download_progress until the background job finishes, then return its result dict."""
+        if not job_id:
+            raise RequestError(
+                "Background job queued but no job_id was provided to track it",
+                endpoint=endpoint,
+            )
+
+        logger.info(f"[{endpoint}] Job {job_id} queued for background processing. Waiting {try_after}s...")
+        await asyncio.sleep(try_after)
+
+        poll_interval = 5   # seconds between each status check
+        max_total_wait = 600  # stop polling after 10 minutes
+        waited = try_after
+
+        while waited < max_total_wait:
+            progress = await self._request("download_progress", {"job_id": job_id})
+            status = progress.get("status")
+
+            if status == "completed":
+                result = progress.get("result")
+                if not result:
+                    raise RequestError(
+                        f"Job {job_id} completed but returned no result data",
+                        endpoint=endpoint,
+                    )
+                logger.info(f"[{endpoint}] Job {job_id} completed successfully.")
+                return result
+
+            if status == "failed":
+                raise RequestError(
+                    progress.get("error") or "Background download failed",
+                    endpoint=endpoint,
+                )
+
+            pct = progress.get("percentage")
+            pct_str = f"{pct:.1f}%" if pct is not None else "..."
+            logger.info(f"[{endpoint}] Job {job_id}: {status} ({pct_str}). Next check in {poll_interval}s...")
+            await asyncio.sleep(poll_interval)
+            waited += poll_interval
+
+        raise RequestError(
+            f"Background job {job_id} did not complete within {max_total_wait}s",
+            endpoint=endpoint,
+        )
+
+    async def _request(self, endpoint: str, params: dict, extra_headers: Optional[dict] = None) -> dict:
         """Make an API request with error handling and try_after support"""
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
         url = f"{self.BASE_URL}/{endpoint}"
         headers = self._get_headers()
+        if self._cookies:
+            headers["X-Cookies"] = self._cookies
+        if extra_headers:
+            headers.update(extra_headers)
         logger.info(f"Requesting: {url} with params: {params}")
 
         try:
@@ -336,6 +419,29 @@ class YouTubeAPI(BaseRapidAPI):
                         "Authentication failed",
                         status_code=response.status,
                         endpoint=endpoint
+                    )
+
+                if response.status == 425:
+                    try:
+                        data = await response.json()
+                    except Exception:
+                        text_response = await response.text()
+                        data = {"success": False, "message": self._extract_error_message(text_response)}
+
+                    if not self._wait_for_background:
+                        raise BackgroundJobError(TryAfterResponse(
+                            success=data.get("success", False),
+                            message=data.get("message", "Download is queued for background processing"),
+                            try_after=data.get("try_after"),
+                            job_id=data.get("job_id"),
+                            status=data.get("status"),
+                            progress_url=data.get("progress_url"),
+                        ))
+
+                    return await self._wait_for_completion(
+                        job_id=data.get("job_id"),
+                        try_after=data.get("try_after", 30),
+                        endpoint=endpoint,
                     )
 
                 if response.status != 200:
@@ -357,41 +463,42 @@ class YouTubeAPI(BaseRapidAPI):
                         endpoint=endpoint
                     )
 
-                # Check if response is a dict before accessing dict methods
-                if isinstance(data, dict):
-                    try_after = data.get("try_after")
+                if not isinstance(data, dict):
+                    return data
 
-                    if try_after is not None:
-                        if try_after > self._max_wait_time:
-                            error_msg = data.get("message", f"Download delay required: {try_after} seconds")
+                try_after = data.get("try_after")
+
+                if try_after is not None:
+                    if try_after > self._max_wait_time:
+                        error_msg = data.get("message", f"Download delay required: {try_after} seconds")
+                        raise RequestError(
+                            error_msg,
+                            status_code=response.status,
+                            endpoint=endpoint
+                        )
+
+                    logger.info(f"Waiting {try_after} seconds before retry...")
+                    await asyncio.sleep(try_after)
+
+                    logger.info("Retrying request after waiting...")
+                    async with self._session.get(url, headers=headers, params=params) as retry_response:  # headers already has extra_headers merged
+                        if retry_response.status != 200:
+                            error_text = await retry_response.text()
+                            clean_message = self._extract_error_message(error_text)
                             raise RequestError(
-                                error_msg,
-                                status_code=response.status,
+                                clean_message,
+                                status_code=retry_response.status,
                                 endpoint=endpoint
                             )
 
-                        logger.info(f"Waiting {try_after} seconds before retry...")
-                        await asyncio.sleep(try_after)
+                        data = await retry_response.json()
 
-                        logger.info(f"Retrying request after waiting...")
-                        async with self._session.get(url, headers=headers, params=params) as retry_response:
-                            if retry_response.status != 200:
-                                error_text = await retry_response.text()
-                                clean_message = self._extract_error_message(error_text)
-                                raise RequestError(
-                                    clean_message,
-                                    status_code=retry_response.status,
-                                    endpoint=endpoint
-                                )
-
-                            data = await retry_response.json()
-
-                    if data.get("success", False) is False:
-                        error_msg = data.get("message") or data.get("messages", "Unknown error")
-                        raise RequestError(
-                            error_msg,
-                            endpoint=endpoint
-                        )
+                if data.get("success", False) is False:
+                    error_msg = data.get("message") or data.get("messages", "Unknown error")
+                    raise RequestError(
+                        error_msg,
+                        endpoint=endpoint
+                    )
 
                 return data
 
@@ -413,7 +520,6 @@ class YouTubeAPI(BaseRapidAPI):
 
         Path(file_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Use instance defaults if not specified
         retries = max_retries if max_retries is not None else self._max_retries
         delay = retry_delay if retry_delay is not None else self._retry_delay
 
@@ -472,13 +578,11 @@ class YouTubeAPI(BaseRapidAPI):
                     logger.error(f"[Download] All {retries} attempts failed")
                     raise last_error
 
-        # This should not be reached, but just in case
         if last_error:
             raise last_error
         raise DownloadError("Download failed for unknown reason")
 
     def _log_progress_checkpoint(self, value: int, unit: str):
-        """Helper method to log progress checkpoints"""
         print()
         logger.info(f"[Download] {value}{unit}")
 
@@ -499,37 +603,111 @@ class YouTubeAPI(BaseRapidAPI):
 
     @with_retry(max_attempts=3, delay=1.0)
     async def video_info(self, url: str) -> VideoInfoResponse:
-        """Get detailed video info from YouTube URL or video ID"""
+        """
+        Get detailed metadata for any supported video URL.
+
+        Supports: YouTube, TikTok, Instagram, Facebook, SoundCloud, and more.
+        Results are cached for 1 hour.
+
+        Args:
+            url: Full video URL from any supported site
+        """
         data = await self._request("video_info", {"video_url": url})
         return self._parse_response_data(data, VideoInfoResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_to_server(self, video_id: str, format: str = "audio") -> ServerResponse:
-        """Get downloadable server URL for a given video"""
-        data = await self._request("youtube_to_server", {"video_id": video_id, "format": format})
+    async def youtube_to_server(
+        self,
+        video_id: str,
+        file_format: str = "mp4",
+        quality: str = "best",
+        webhook_url: Optional[str] = None,
+        format: Optional[str] = None,  # Deprecated: use file_format
+    ) -> ServerResponse:
+        """
+        Download YouTube video to server and get a temporary download URL (valid 10 min).
+
+        Args:
+            video_id: YouTube video ID (10-12 chars)
+            file_format: Output format — "mp4" (video), "m4a" (audio), "mp3" (audio). Default: "mp4"
+            quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
+            webhook_url: Optional URL to receive POST callback when download completes
+            format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+        """
+        params = {"video_id": video_id, "file_format": file_format, "quality": quality}
+        if format is not None:
+            params["format"] = format
+        if webhook_url is not None:
+            params["webhook_url"] = webhook_url
+        data = await self._request("youtube_to_server", params)
         return self._parse_response_data(data, ServerResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_to_telegram(self, video_id: str, format: str = "audio") -> TelegramResponse:
-        """Upload YouTube video to Telegram"""
-        data = await self._request("youtube_to_telegram", {"video_id": video_id, "format": format})
+    async def youtube_to_telegram(
+        self,
+        video_id: str,
+        file_format: str = "m4a",
+        quality: str = "best",
+        webhook_url: Optional[str] = None,
+        format: Optional[str] = None,  # Deprecated: use file_format
+    ) -> TelegramResponse:
+        """
+        Upload YouTube video/audio to Telegram and get the message link.
+
+        Args:
+            video_id: YouTube video ID (10-12 chars)
+            file_format: Output format — "m4a" (audio, cached), "mp3" (audio, not cached), "mp4" (video, cached). Default: "m4a"
+            quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
+            webhook_url: Optional URL to receive POST callback when upload completes
+            format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+        """
+        params = {"video_id": video_id, "file_format": file_format, "quality": quality}
+        if format is not None:
+            params["format"] = format
+        if webhook_url is not None:
+            params["webhook_url"] = webhook_url
+        data = await self._request("youtube_to_telegram", params)
         return self._parse_response_data(data, TelegramResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_live_hls(self, video_id: str) -> LiveStream:
-        """Get HLS live stream URL for a YouTube Live"""
-        data = await self._request("youtube_live_hls", {"video_id": video_id})
-        return LiveStream(url=data.get("url"))
+    async def youtube_live_hls(self, video_id: str, audio_only: bool = False) -> LiveStream:
+        """
+        Get HLS live stream playback URL for a YouTube Live (valid 10 min).
+
+        Args:
+            video_id: YouTube live video ID (10-12 chars)
+            audio_only: Stream audio track only (no video). Default: False
+        """
+        data = await self._request(
+            "youtube_live_hls",
+            {"video_id": video_id, "audio_only": audio_only},
+        )
+        return LiveStream(success=data.get("success", True), url=data.get("url"), warning=data.get("warning"))
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_live_mp4(self, video_id: str) -> LiveStream:
-        """Get MP4 live stream URL for a YouTube Live"""
-        data = await self._request("youtube_live_mp4", {"video_id": video_id})
-        return LiveStream(url=data.get("url"))
+    async def youtube_live_mp4(self, video_id: str, audio_only: bool = False) -> LiveStream:
+        """
+        Get MP4 live stream playback URL for a YouTube Live (valid 10 min).
+
+        Args:
+            video_id: YouTube live video ID (10-12 chars)
+            audio_only: Stream audio track only (no video). Default: False
+        """
+        data = await self._request(
+            "youtube_live_mp4",
+            {"video_id": video_id, "audio_only": audio_only},
+        )
+        return LiveStream(success=data.get("success", True), url=data.get("url"), warning=data.get("warning"))
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def search(self, query: str, limit: int = 5) -> List[VideoSearchResult]:
-        """Search on YouTube for a given query"""
+    async def search(self, query: str, limit: int = 10) -> List[VideoSearchResult]:
+        """
+        Search YouTube videos.
+
+        Args:
+            query: Search query string
+            limit: Maximum number of results (1-50). Default: 10
+        """
         data = await self._request("search", {"query": query, "limit": limit})
         results = []
         if isinstance(data, list):
@@ -538,7 +716,38 @@ class YouTubeAPI(BaseRapidAPI):
         return results
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_video_stream(self, video_id: str, format: str = "audio") -> LiveStream:
-        """Get MP4 live stream URL for a YouTube video"""
-        data = await self._request("youtube_video_stream", {"video_id": video_id, "format": format})
-        return LiveStream(url=data.get("url"))
+    async def youtube_video_stream(
+        self,
+        video_id: str,
+        file_format: str = "mp4",
+        quality: str = "best",
+        format: Optional[str] = None,  # Deprecated: use file_format
+    ) -> LiveStream:
+        """
+        Get a temporary streaming URL for a YouTube video (valid 10 min).
+
+        Args:
+            video_id: YouTube video ID (10-12 chars)
+            file_format: Output format — "mp4" (video), "m4a" (audio), "mp3" (audio). Default: "mp4"
+            quality: Output quality — "best", "worst", "1080p", "720p", etc. Default: "best"
+            format: Deprecated. Use file_format instead
+        """
+        params = {"video_id": video_id, "file_format": file_format, "quality": quality}
+        if format is not None:
+            params["format"] = format
+        data = await self._request("youtube_video_stream", params)
+        return LiveStream(success=data.get("success", True), url=data.get("url"), warning=data.get("warning"))
+
+    @with_retry(max_attempts=3, delay=1.0)
+    async def download_progress(self, job_id: str) -> DownloadProgressResponse:
+        """
+        Check the progress of a background download/upload job.
+
+        Args:
+            job_id: Job ID returned from youtube_to_server or youtube_to_telegram
+
+        Returns:
+            DownloadProgressResponse with status, percentage, and result/error when done
+        """
+        data = await self._request("download_progress", {"job_id": job_id})
+        return self._parse_response_data(data, DownloadProgressResponse)

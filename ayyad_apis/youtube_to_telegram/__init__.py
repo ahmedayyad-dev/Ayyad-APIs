@@ -2,6 +2,7 @@ from .core import (
     YouTubeAPI,
     DownloadError,
     APIResponseError,
+    BackgroundJobError,
     Channel,
     Video,
     VideoInfoResponse,
@@ -10,12 +11,16 @@ from .core import (
     LiveStream,
     ServerDownloadField,
     ServerResponse,
+    TryAfterResponse,
+    DownloadProgressResponse,
+    VideoSearchResult,
 )
 
 __all__ = [
     "YouTubeAPI",
     "DownloadError",
     "APIResponseError",
+    "BackgroundJobError",
     "Channel",
     "Video",
     "VideoInfoResponse",
@@ -24,4 +29,7 @@ __all__ = [
     "LiveStream",
     "ServerDownloadField",
     "ServerResponse",
+    "TryAfterResponse",
+    "DownloadProgressResponse",
+    "VideoSearchResult",
 ]

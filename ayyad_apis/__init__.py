@@ -45,6 +45,7 @@ from .youtube_to_telegram import (
     YouTubeAPI,
     DownloadError,
     APIResponseError as YouTubeAPIResponseError,
+    BackgroundJobError,
     Channel,
     Video,
     VideoInfoResponse,
@@ -53,6 +54,9 @@ from .youtube_to_telegram import (
     LiveStream,
     ServerDownloadField,
     ServerResponse,
+    TryAfterResponse,
+    DownloadProgressResponse,
+    VideoSearchResult,
 )
 
 from .youtube_suggest import (
@@ -152,6 +156,7 @@ __all__ = [
     "YouTubeAPI",
     "DownloadError",
     "YouTubeAPIResponseError",
+    "BackgroundJobError",
     "Channel",
     "Video",
     "VideoInfoResponse",
@@ -160,6 +165,9 @@ __all__ = [
     "LiveStream",
     "ServerDownloadField",
     "ServerResponse",
+    "TryAfterResponse",
+    "DownloadProgressResponse",
+    "VideoSearchResult",
 
     # YouTube Suggest
     "YouTubeSuggestAPI",
