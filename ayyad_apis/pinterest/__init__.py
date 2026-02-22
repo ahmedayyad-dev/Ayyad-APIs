@@ -23,6 +23,7 @@ from .core import (
     # Exceptions
     PinterestAPIError,
     PinterestAuthenticationError,
+    PinterestClientError,
     PinterestDownloadError,
     PinterestInvalidURLError,
     PinterestRequestError,
@@ -47,6 +48,7 @@ __all__ = [
     # Exceptions
     "PinterestAPIError",
     "PinterestAuthenticationError",
+    "PinterestClientError",
     "PinterestDownloadError",
     "PinterestInvalidURLError",
     "PinterestRequestError",

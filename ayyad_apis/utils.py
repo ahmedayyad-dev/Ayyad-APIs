@@ -4,10 +4,17 @@ Shared utilities for Ayyad APIs library.
 This module provides common utility functions used across different API modules.
 """
 
+import json
 import logging
 import asyncio
+import os
+import time
+from abc import ABC
+from dataclasses import dataclass, field, asdict, is_dataclass
+from functools import wraps
 from pathlib import Path
-from typing import Optional, Union, Callable, Dict, Any
+from typing import Optional, Union, Callable, Dict, Any, List, Tuple, Type
+
 import aiohttp
 import aiofiles
 
@@ -51,8 +58,9 @@ def create_rapidapi_headers(
 
 async def validate_rapidapi_response(
     response: aiohttp.ClientResponse,
-    auth_error_class: type,
-    request_error_class: type
+    auth_error_class: Type[Exception],
+    request_error_class: Type[Exception],
+    client_error_class: Optional[Type[Exception]] = None
 ) -> Dict[str, Any]:
     """
     Validate RapidAPI response and handle common errors.
@@ -63,39 +71,54 @@ async def validate_rapidapi_response(
     Args:
         response: aiohttp ClientResponse object
         auth_error_class: Exception class to raise for authentication errors (401/403)
-        request_error_class: Exception class to raise for other request errors
+        request_error_class: Exception class to raise for server errors (5xx)
+        client_error_class: Exception class to raise for client errors (4xx, excluding 401/403)
 
     Returns:
         Parsed JSON response as dictionary
 
     Raises:
         auth_error_class: If authentication fails (401/403)
-        request_error_class: If request fails (other status codes)
+        client_error_class: If client error (4xx) - should NOT be retried
+        request_error_class: If server error (5xx) - can be retried
 
     Example:
         async with session.get(url) as response:
             data = await validate_rapidapi_response(
                 response,
                 MyAuthError,
-                MyRequestError
+                MyRequestError,
+                MyClientError
             )
     """
     # Check for authentication errors
     if response.status in (401, 403):
         raise auth_error_class(f"Authentication failed: {response.status}")
 
-    # Check for other errors
-    if response.status != 200:
+    # Check for client errors (4xx) - should NOT be retried
+    if 400 <= response.status < 500:
+        error_text = await response.text()
+        error_class = client_error_class or request_error_class
+        raise error_class(
+            f"Client error {response.status}: {error_text}",
+            status_code=response.status,
+            response_text=error_text
+        )
+
+    # Check for server errors (5xx) - can be retried
+    if response.status >= 500:
         error_text = await response.text()
         raise request_error_class(
-            f"Request failed with status {response.status}: {error_text}"
+            f"Server error {response.status}: {error_text}",
+            status_code=response.status,
+            response_text=error_text
         )
 
     # Parse JSON response
     try:
-        data = await response.json()
+        data: Dict[str, Any] = await response.json()
         return data
-    except (aiohttp.ContentTypeError, ValueError) as e:
+    except (aiohttp.ContentTypeError, ValueError):
         error_text = await response.text()
         raise request_error_class(f"Invalid JSON response: {error_text}")
 
@@ -178,7 +201,7 @@ async def download_file(
         return None
 
     # Determine output path for file downloads
-    final_output_path = None
+    final_output_path: Optional[Path] = None
     if not return_bytes:
         if output_path is None:
             # Try to extract extension from URL
@@ -193,8 +216,7 @@ async def download_file(
         final_output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Retry logic
-    last_error = None
-    close_session = False
+    close_session: bool = False
 
     for attempt in range(max_retries):
         try:
@@ -212,14 +234,14 @@ async def download_file(
                     logger.error(error_msg)
                     raise Exception(error_msg)
 
-                total_size = int(response.headers.get('content-length', 0))
+                total_size: int = int(response.headers.get('content-length', 0))
 
                 if return_bytes:
                     # Simple read for bytes
                     if show_progress and total_size > 0:
                         logger.info(f"[Download] Downloading {total_size:,} bytes from: {url}")
 
-                    content = await response.read()
+                    content: bytes = await response.read()
 
                     if show_progress:
                         logger.info(f"[Download] Completed: {len(content):,} bytes")
@@ -238,8 +260,8 @@ async def download_file(
                     else:
                         logger.info(f"[Download] Starting download: {final_output_path}")
 
-                downloaded = 0
-                last_logged_percent = 0
+                downloaded: int = 0
+                last_logged_percent: int = 0
 
                 async with aiofiles.open(final_output_path, "wb") as f:
                     async for chunk in response.content.iter_chunked(chunk_size):
@@ -248,14 +270,14 @@ async def download_file(
 
                         # Progress tracking
                         if total_size > 0:
-                            percentage = (downloaded / total_size) * 100
+                            percentage: float = (downloaded / total_size) * 100
 
                             # Console progress
                             if show_progress:
                                 print(f"\r[Download] Progress: {percentage:.1f}% ({downloaded:,}/{total_size:,} bytes)", end="", flush=True)
 
                                 # Log every 10%
-                                current_milestone = int(percentage // 10) * 10
+                                current_milestone: int = int(percentage // 10) * 10
                                 if current_milestone > last_logged_percent and current_milestone > 0:
                                     print()  # New line
                                     logger.info(f"[Download] {current_milestone}% completed")
@@ -284,7 +306,6 @@ async def download_file(
                 return str(final_output_path)
 
         except Exception as e:
-            last_error = e
             logger.error(f"[Download] Attempt {attempt + 1} failed: {str(e)}")
 
             # Close session on error if we created it
@@ -326,14 +347,12 @@ class BaseResponse:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert dataclass to dictionary."""
-        from dataclasses import asdict, is_dataclass
         if is_dataclass(self):
             return asdict(self)
         raise NotImplementedError("Subclass must be a dataclass")
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """Convert to JSON string."""
-        import json
         return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
 
@@ -372,22 +391,20 @@ class APIError(Exception):
         request_params: Optional[Dict[str, Any]] = None,
         retry_count: int = 0,
         original_error: Optional[Exception] = None
-    ):
+    ) -> None:
         super().__init__(message)
-        self.message = message
-        self.status_code = status_code
-        self.response_text = response_text
-        self.endpoint = endpoint
-        self.request_params = request_params
-        self.retry_count = retry_count
-        self.original_error = original_error
-
-        import time
-        self.timestamp = time.time()
+        self.message: str = message
+        self.status_code: Optional[int] = status_code
+        self.response_text: Optional[str] = response_text
+        self.endpoint: Optional[str] = endpoint
+        self.request_params: Optional[Dict[str, Any]] = request_params
+        self.retry_count: int = retry_count
+        self.original_error: Optional[Exception] = original_error
+        self.timestamp: float = time.time()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert error to dictionary for logging/debugging."""
-        result = {
+        result: Dict[str, Any] = {
             "error_type": self.__class__.__name__,
             "message": self.message,
             "timestamp": self.timestamp
@@ -406,7 +423,7 @@ class APIError(Exception):
 
     def __str__(self) -> str:
         """String representation with context."""
-        parts = [self.message]
+        parts: List[str] = [self.message]
         if self.endpoint:
             parts.append(f"endpoint={self.endpoint}")
         if self.status_code:
@@ -421,8 +438,13 @@ class AuthenticationError(APIError):
     pass
 
 
+class ClientError(APIError):
+    """Raised for client errors (4xx) - should NOT be retried."""
+    pass
+
+
 class RequestError(APIError):
-    """Raised when API request fails."""
+    """Raised when API request fails (5xx or network errors) - can be retried."""
     pass
 
 
@@ -437,10 +459,6 @@ class DownloadError(APIError):
 
 
 # ==================== Configuration Management ====================
-
-
-from dataclasses import dataclass, field
-import os
 
 
 @dataclass
@@ -523,15 +541,13 @@ class APIConfig:
 # ==================== Retry Decorator ====================
 
 
-from functools import wraps
-
-
 def with_retry(
     max_attempts: int = 3,
     delay: float = 2.0,
     backoff: float = 2.0,
-    exceptions: tuple = None
-):
+    exceptions: Optional[Tuple[Type[Exception], ...]] = None,
+    no_retry_exceptions: Optional[Tuple[Type[Exception], ...]] = None
+) -> Callable:
     """
     Decorator for automatic retry logic with exponential backoff.
 
@@ -540,6 +556,7 @@ def with_retry(
         delay: Initial delay between retries in seconds (default: 2.0)
         backoff: Multiplier for delay after each retry (default: 2.0)
         exceptions: Tuple of exceptions to catch and retry (default: RequestError, aiohttp.ClientError)
+        no_retry_exceptions: Exceptions that should NOT be retried (default: ClientError, AuthenticationError)
 
     Example:
         @with_retry(max_attempts=5, delay=1.0, backoff=2.0)
@@ -550,20 +567,31 @@ def with_retry(
         # Second attempt fails -> wait 2.0s -> retry
         # Third attempt fails -> wait 4.0s -> retry
         # etc.
+
+    Note:
+        ClientError (4xx) and AuthenticationError are never retried as they
+        indicate client-side issues that won't be resolved by retrying.
     """
     # Default exceptions if not provided
     if exceptions is None:
-        exceptions = (RequestError, aiohttp.ClientError)
+        exceptions = (RequestError, aiohttp.ClientError, ClientError, AuthenticationError)
 
-    def decorator(func: Callable):
+    # Exceptions that should NOT be retried
+    if no_retry_exceptions is None:
+        no_retry_exceptions = (ClientError, AuthenticationError)
+
+    def decorator(func: Callable) -> Callable:
         @wraps(func)
-        async def wrapper(*args, **kwargs):
-            current_delay = delay
-            last_exception = None
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            current_delay: float = delay
+            last_exception: Optional[Exception] = None
 
             for attempt in range(max_attempts):
                 try:
                     return await func(*args, **kwargs)
+                except no_retry_exceptions:
+                    # Don't retry client errors or auth errors - re-raise immediately
+                    raise
                 except exceptions as e:
                     last_exception = e
 
@@ -593,9 +621,6 @@ def with_retry(
 
 
 # ==================== Progress Tracking ====================
-
-
-import time
 
 
 @dataclass
@@ -655,7 +680,7 @@ class ProgressTracker:
         total: int,
         callback: Optional[Callable[[ProgressInfo], None]] = None,
         update_interval: float = 0.5
-    ):
+    ) -> None:
         """
         Initialize progress tracker.
 
@@ -664,15 +689,15 @@ class ProgressTracker:
             callback: Function to call with ProgressInfo on updates
             update_interval: Minimum seconds between callbacks (default: 0.5)
         """
-        self.total = total
-        self.callback = callback
-        self.update_interval = update_interval
+        self.total: int = total
+        self.callback: Optional[Callable[[ProgressInfo], None]] = callback
+        self.update_interval: float = update_interval
 
-        self.current = 0
-        self.start_time = time.time()
-        self.last_update_time = 0.0
+        self.current: int = 0
+        self.start_time: float = time.time()
+        self.last_update_time: float = 0.0
 
-    def update(self, current: int, force: bool = False):
+    def update(self, current: int, force: bool = False) -> None:
         """
         Update progress.
 
@@ -682,26 +707,26 @@ class ProgressTracker:
         """
         self.current = current
 
-        now = time.time()
+        now: float = time.time()
         if not force and (now - self.last_update_time) < self.update_interval:
             return
 
         self.last_update_time = now
 
         if self.callback:
-            info = self.get_progress_info()
+            info: ProgressInfo = self.get_progress_info()
             self.callback(info)
 
     def get_progress_info(self) -> ProgressInfo:
         """Get current progress information."""
-        elapsed = time.time() - self.start_time
-        percentage = (self.current / self.total * 100) if self.total > 0 else 0
+        elapsed: float = time.time() - self.start_time
+        percentage: float = (self.current / self.total * 100) if self.total > 0 else 0
 
         # Calculate speed and ETA
-        speed = self.current / elapsed if elapsed > 0 else 0
-        remaining = self.total - self.current
-        eta = remaining / speed if speed > 0 else None
-        estimated_total = elapsed + eta if eta else None
+        speed: float = self.current / elapsed if elapsed > 0 else 0
+        remaining: int = self.total - self.current
+        eta: Optional[float] = remaining / speed if speed > 0 else None
+        estimated_total: Optional[float] = elapsed + eta if eta else None
 
         return ProgressInfo(
             current=self.current,
@@ -713,15 +738,12 @@ class ProgressTracker:
             speed=speed
         )
 
-    def complete(self):
+    def complete(self) -> None:
         """Mark operation as complete and trigger final callback."""
         self.update(self.total, force=True)
 
 
 # ==================== Base API Client ====================
-
-
-from abc import ABC
 
 
 class BaseRapidAPI(ABC):
@@ -759,7 +781,7 @@ class BaseRapidAPI(ABC):
         rapidapi_host: Optional[str] = None,
         timeout: int = 30,
         config: Optional[APIConfig] = None
-    ):
+    ) -> None:
         """
         Initialize API client.
 
@@ -778,10 +800,10 @@ class BaseRapidAPI(ABC):
             client = MyAPI(config=config)
         """
         if config:
-            self.api_key = config.api_key or api_key
-            self.rapidapi_host = config.rapidapi_host or rapidapi_host or self.DEFAULT_HOST
-            self.timeout = aiohttp.ClientTimeout(total=config.timeout)
-            self.config = config
+            self.api_key: str = config.api_key or api_key
+            self.rapidapi_host: str = config.rapidapi_host or rapidapi_host or self.DEFAULT_HOST
+            self.timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(total=config.timeout)
+            self.config: APIConfig = config
         else:
             self.api_key = api_key
             self.rapidapi_host = rapidapi_host or self.DEFAULT_HOST
@@ -795,13 +817,18 @@ class BaseRapidAPI(ABC):
         self._session: Optional[aiohttp.ClientSession] = None
         logger.info(f"{self.__class__.__name__} initialized")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "BaseRapidAPI":
         """Async context manager entry."""
         self._session = aiohttp.ClientSession(timeout=self.timeout)
         logger.debug("HTTP session created")
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Any
+    ) -> bool:
         """Async context manager exit."""
         if self._session:
             await self._session.close()
@@ -818,7 +845,7 @@ class BaseRapidAPI(ABC):
         Returns:
             Dictionary with RapidAPI headers + any extra headers from config
         """
-        headers = create_rapidapi_headers(
+        headers: Dict[str, str] = create_rapidapi_headers(
             api_key=self.api_key,
             rapidapi_host=self.rapidapi_host,
             content_type=content_type
@@ -834,7 +861,7 @@ class BaseRapidAPI(ABC):
         self,
         method: str,
         endpoint: str,
-        **kwargs
+        **kwargs: Any
     ) -> Dict[str, Any]:
         """
         Make HTTP request with validation.
@@ -862,7 +889,7 @@ class BaseRapidAPI(ABC):
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
-        url = f"{self.BASE_URL}{endpoint}"
+        url: str = f"{self.BASE_URL}{endpoint}"
 
         # Add headers if not provided
         if 'headers' not in kwargs:
@@ -875,7 +902,8 @@ class BaseRapidAPI(ABC):
                 return await validate_rapidapi_response(
                     response,
                     AuthenticationError,
-                    RequestError
+                    RequestError,
+                    ClientError
                 )
         except aiohttp.ClientError as e:
             logger.error(f"Request error: {str(e)}")

@@ -5,7 +5,7 @@ This module provides type hints, literals, and TypedDict definitions
 for better type safety and IDE support across all API modules.
 """
 
-from typing import Literal, TypedDict, Union, List, Optional, Dict, Any, Callable
+from typing import Literal, TypedDict, Union, List, Dict, Any, Callable
 try:
     from typing_extensions import NotRequired
 except ImportError:

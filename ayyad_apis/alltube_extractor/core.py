@@ -16,16 +16,16 @@ from ..utils import (
     BaseRapidAPI,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
-    APIConfig,
     with_retry,
 )
 
 try:
     from yt_dlp import YoutubeDL
     yt_dlp_installed = True
-except ImportError as e:
+except ImportError:
     yt_dlp_installed = False
 
 # Configure logging
@@ -37,6 +37,7 @@ logger = logging.getLogger(__name__)
 # Create aliases for backward compatibility
 AllTubeError = APIError
 AllTubeAuthenticationError = AuthenticationError
+AllTubeClientError = ClientError
 AllTubeRequestError = RequestError
 AllTubeInvalidURLError = InvalidInputError
 
@@ -92,7 +93,8 @@ class AllTubeAPI(BaseRapidAPI):
 
     # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
-    async def get_info(self, url: str, yt_dlp_opts={}) -> Dict[str, Any]:
+    @with_retry(max_attempts=3, delay=1.0)
+    async def get_info(self, url: str, yt_dlp_opts: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Extract video information from a URL.
 
@@ -122,6 +124,9 @@ class AllTubeAPI(BaseRapidAPI):
                 print(info['title'])
                 print(f"Available formats: {len(info.get('formats', []))}")
         """
+        if yt_dlp_opts is None:
+            yt_dlp_opts = {}
+
         if not url or not isinstance(url, str):
             raise InvalidInputError("URL must be a non-empty string")
 
@@ -130,7 +135,7 @@ class AllTubeAPI(BaseRapidAPI):
 
         logger.info(f"Extracting video info from: {url}")
 
-        params = {
+        params: Dict[str, str] = {
             "url": url,
             'yt_dlp_opts': json.dumps(yt_dlp_opts, indent=2, ensure_ascii=False)
         }
@@ -145,7 +150,7 @@ class AllTubeAPI(BaseRapidAPI):
         return data
 
     async def yt_dlp_download(self, url: str, yt_dlp_format: str = "best",
-                              yt_dlp_outtmpl: str = "%(title)s.%(ext)s",download=True) -> Dict[str, Any]:
+                              yt_dlp_outtmpl: str = "%(title)s.%(ext)s", download: bool = True) -> Dict[str, Any]:
         """
         Download video using yt-dlp
 

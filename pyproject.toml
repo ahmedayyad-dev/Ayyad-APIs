@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ayyad_apis"
+dynamic = ["version"]
+description = "Collection of Python wrappers"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.9"
+authors = [
+    { name = "Ahmed Ayyad", email = "ahmedyad200@gmail.com" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "aiohttp",
+    "aiofiles",
+]
+
+[project.urls]
+Homepage = "https://github.com/ahmedayyad-dev/Ayyad-APIs"
+
+[tool.setuptools.dynamic]
+version = {attr = "ayyad_apis.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["ayyad_apis*"]
+
+[tool.setuptools.package-data]
+ayyad_apis = ["py.typed"]

@@ -9,13 +9,14 @@ from .core import (
     ToxicityDetectorAPI,
 
     # Data Models
-    BlockedWord,
+    ObfuscatedWord,
     TextAnalysisResult,
     AudioAnalysisResult,
 
     # Exceptions
     ToxicityDetectorError,
     ToxicityAuthenticationError,
+    ToxicityClientError,
     ToxicityRequestError,
     ToxicityInvalidInputError,
 )
@@ -25,13 +26,14 @@ __all__ = [
     "ToxicityDetectorAPI",
 
     # Data Models
-    "BlockedWord",
+    "ObfuscatedWord",
     "TextAnalysisResult",
     "AudioAnalysisResult",
 
     # Exceptions
     "ToxicityDetectorError",
     "ToxicityAuthenticationError",
+    "ToxicityClientError",
     "ToxicityRequestError",
     "ToxicityInvalidInputError",
 ]
