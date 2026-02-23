@@ -367,10 +367,10 @@ class PornDetectionAPI(BaseRapidAPI):
         Send a POST request with file upload.
 
         Args:
-            url: Full URL or endpoint path (if not external)
+            url: Full URL (if is_external=True) or endpoint name without leading slash
             file_path: Path to the file to upload
             params: Optional query parameters
-            is_external: If True, url is treated as a full URL; otherwise as an endpoint
+            is_external: If True, url is a full S3 pre-signed URL; otherwise an API endpoint
 
         Returns:
             JSON response as dictionary
@@ -383,67 +383,46 @@ class PornDetectionAPI(BaseRapidAPI):
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
-        full_url: str = url if is_external else f"{self.BASE_URL}/{url}"
-
         if not Path(file_path).exists():
             raise InvalidInputError(f"File not found: {file_path}")
 
-        logger.info(f"POST {full_url} - uploading file: {file_path}")
+        logger.info(f"POST {'<external>' if is_external else self.BASE_URL + '/' + url} - uploading file: {file_path}")
 
-        try:
-            data = aiohttp.FormData()
+        data = aiohttp.FormData()
+        async with aiofiles.open(file_path, 'rb') as f:
+            file_content: bytes = await f.read()
+            data.add_field('file',
+                           file_content,
+                           filename=Path(file_path).name,
+                           content_type='application/octet-stream')
 
-            async with aiofiles.open(file_path, 'rb') as f:
-                file_content: bytes = await f.read()
-                data.add_field('file',
-                               file_content,
-                               filename=Path(file_path).name,
-                               content_type='application/octet-stream')
-
-            headers: Dict[str, str] = self._get_headers()
-            async with self._session.post(full_url, headers=headers, data=data, params=params) as response:
-                if response.status in (401, 403):
-                    raise AuthenticationError(
-                        "Authentication failed",
-                        status_code=response.status,
-                        endpoint=url
-                    )
-
-                if response.status != 200:
-                    error_text: str = await response.text()
-                    if is_external:
+        if is_external:
+            # S3 pre-signed URL upload — keep full manual control over headers/errors
+            try:
+                headers: Dict[str, str] = self._get_headers()
+                async with self._session.post(url, headers=headers, data=data, params=params) as response:
+                    if response.status in (401, 403):
+                        raise AuthenticationError(
+                            "Authentication failed",
+                            status_code=response.status,
+                            endpoint=url
+                        )
+                    if response.status != 200:
+                        error_text: str = await response.text()
                         raise UploadError(f"Upload failed - HTTP {response.status}: {error_text}")
-                    raise RequestError(
-                        f"HTTP {response.status}: {error_text}",
-                        status_code=response.status,
-                        endpoint=url,
-                        response_text=error_text
-                    )
-
-                try:
-                    return await response.json()
-                except Exception as e:
-                    text: str = await response.text()
-                    if is_external:
+                    try:
+                        return await response.json()
+                    except Exception:
+                        text: str = await response.text()
                         raise UploadError(f"Invalid JSON response after upload: {text}")
-                    raise RequestError(
-                        f"Invalid JSON response: {text}",
-                        status_code=response.status,
-                        endpoint=url,
-                        original_error=e
-                    )
-
-        except (AuthenticationError, RequestError, UploadError):
-            raise
-        except Exception as e:
-            logger.error(f"Upload error: {str(e)}")
-            if is_external:
+            except (AuthenticationError, UploadError):
+                raise
+            except Exception as e:
+                logger.error(f"Upload error: {str(e)}")
                 raise UploadError(f"File upload failed: {str(e)}")
-            raise RequestError(
-                f"File upload failed: {str(e)}",
-                endpoint=url,
-                original_error=e
-            )
+        else:
+            # Internal API endpoint — delegate to shared _post_form_data
+            return await self._post_form_data(f"/{url}", data, params=params)
 
     # -------------------- Image Detection --------------------
 

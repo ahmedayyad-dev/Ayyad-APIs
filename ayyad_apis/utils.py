@@ -912,3 +912,121 @@ class BaseRapidAPI(ABC):
                 endpoint=endpoint,
                 original_error=e
             )
+
+    async def _make_text_request(
+        self,
+        method: str,
+        endpoint: str,
+        **kwargs: Any
+    ) -> str:
+        """
+        Make HTTP request and return response as plain text (for non-JSON APIs).
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            endpoint: API endpoint path (e.g., "/search")
+            **kwargs: Additional arguments for aiohttp request
+
+        Returns:
+            Response text as string
+
+        Raises:
+            APIError: If session not initialized
+            AuthenticationError: If authentication fails (401/403)
+            RequestError: If request fails
+        """
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url: str = f"{self.BASE_URL}{endpoint}"
+
+        if 'headers' not in kwargs:
+            kwargs['headers'] = self._get_headers()
+
+        logger.debug(f"Making {method} text request to {endpoint}")
+
+        try:
+            async with self._session.request(method, url, **kwargs) as response:
+                if response.status in (401, 403):
+                    raise AuthenticationError(
+                        "Authentication failed",
+                        status_code=response.status,
+                        endpoint=endpoint
+                    )
+
+                if response.status != 200:
+                    error_text: str = await response.text()
+                    raise RequestError(
+                        "Request failed",
+                        status_code=response.status,
+                        response_text=error_text,
+                        endpoint=endpoint
+                    )
+
+                return await response.text()
+
+        except (AuthenticationError, RequestError):
+            raise
+        except aiohttp.ClientError as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(
+                f"Network error: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )
+
+    async def _post_form_data(
+        self,
+        endpoint: str,
+        form_data: Any,
+        params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """
+        POST multipart form data to an endpoint.
+
+        Content-Type is omitted so aiohttp sets it automatically for multipart,
+        which is required for correct boundary generation.
+
+        Args:
+            endpoint: API endpoint path (e.g., "/analyze-audio")
+            form_data: aiohttp.FormData instance
+            params: Optional query parameters
+
+        Returns:
+            JSON response as dictionary
+
+        Raises:
+            APIError: If session not initialized
+            AuthenticationError: If authentication fails (401/403)
+            RequestError: If request fails
+        """
+        if not self._session:
+            raise APIError("Session not initialized. Use async context manager.")
+
+        url: str = f"{self.BASE_URL}{endpoint}"
+
+        # Omit Content-Type — aiohttp sets it automatically for multipart/form-data
+        headers: Dict[str, str] = {
+            "x-rapidapi-host": self.rapidapi_host,
+            "x-rapidapi-key": self.api_key,
+        }
+        if self.config and self.config.extra_headers:
+            headers.update(self.config.extra_headers)
+
+        logger.debug(f"Making POST form-data request to {endpoint}")
+
+        try:
+            async with self._session.post(url, headers=headers, data=form_data, params=params) as response:
+                return await validate_rapidapi_response(
+                    response,
+                    AuthenticationError,
+                    RequestError,
+                    ClientError
+                )
+        except aiohttp.ClientError as e:
+            logger.error(f"Request error: {str(e)}")
+            raise RequestError(
+                f"Network error: {str(e)}",
+                endpoint=endpoint,
+                original_error=e
+            )

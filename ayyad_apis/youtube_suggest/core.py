@@ -18,8 +18,6 @@ from ..utils import (
     BaseRapidAPI,
     BaseResponse,
     APIError,
-    AuthenticationError,
-    ClientError,
     RequestError,
 )
 
@@ -142,58 +140,6 @@ class YouTubeSuggestAPI(BaseRapidAPI):
         except (IndexError, KeyError) as e:
             raise ProcessingError(f"Unexpected response structure: {str(e)}")
 
-    # ==================== Request Handler ====================
-
-    async def _request_text(self, endpoint: str, params: Dict[str, str]) -> str:
-        """
-        Send GET request to API and return raw text response.
-
-        This API returns text (not JSON), so we can't use _make_request directly.
-
-        Args:
-            endpoint: API endpoint
-            params: Query parameters
-
-        Returns:
-            Raw response text
-
-        Raises:
-            AuthenticationError: If authentication fails
-            RequestError: If request fails
-        """
-        if not self._session:
-            raise APIError("Session not initialized. Use async context manager.")
-
-        url: str = f"{self.BASE_URL}/{endpoint}"
-        headers: Dict[str, str] = self._get_headers()
-        logger.info(f"GET {url} with params: {params}")
-
-        try:
-            async with self._session.get(url, headers=headers, params=params) as response:
-                if response.status in (401, 403):
-                    raise AuthenticationError(
-                        "Authentication failed",
-                        status_code=response.status,
-                        endpoint=endpoint
-                    )
-
-                if response.status != 200:
-                    error_text: str = await response.text()
-                    raise RequestError(
-                        "Request failed",
-                        status_code=response.status,
-                        response_text=error_text,
-                        endpoint=endpoint
-                    )
-
-                return await response.text()
-
-        except (AuthenticationError, RequestError):
-            raise
-        except Exception as e:
-            logger.error(f"Request error: {str(e)}")
-            raise RequestError(f"Network error: {str(e)}", endpoint=endpoint, original_error=e)
-
     # ==================== Public Methods ====================
 
     async def search(self, query: str, process_response: bool = True) -> Union[SuggestionResult, str]:
@@ -215,7 +161,7 @@ class YouTubeSuggestAPI(BaseRapidAPI):
             ProcessingError: If process_response=True and processing fails
         """
         params: Dict[str, str] = {"search_query": query}
-        raw_response: str = await self._request_text("search", params)
+        raw_response: str = await self._make_text_request("GET", "/search", params=params)
 
         # If user wants raw response
         if not process_response:

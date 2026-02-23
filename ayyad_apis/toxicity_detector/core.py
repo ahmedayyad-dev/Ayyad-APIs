@@ -154,70 +154,6 @@ class ToxicityDetectorAPI(BaseRapidAPI):
 
     # __init__, __aenter__, __aexit__, _get_headers inherited from BaseRapidAPI
 
-    async def _make_request_with_file(
-        self,
-        endpoint: str,
-        form_data: aiohttp.FormData
-    ) -> Dict[str, Any]:
-        """
-        Make an async request with file upload (for audio analysis).
-
-        Args:
-            endpoint: API endpoint path
-            form_data: Form data with audio file
-
-        Returns:
-            JSON response as dictionary
-
-        Raises:
-            AuthenticationError: If authentication fails
-            RequestError: If request fails
-        """
-        if not self._session:
-            raise APIError("Session not initialized. Use async context manager.")
-
-        url: str = f"{self.BASE_URL}{endpoint}"
-
-        # For file uploads, don't include Content-Type - aiohttp sets it automatically
-        headers: Dict[str, str] = {
-            "x-rapidapi-host": self.rapidapi_host,
-            "x-rapidapi-key": self.api_key
-        }
-
-        logger.debug(f"Making POST request with file to {endpoint}")
-
-        try:
-            async with self._session.post(url, headers=headers, data=form_data) as response:
-                # Check for authentication errors
-                if response.status in (401, 403):
-                    raise AuthenticationError(
-                        "Authentication failed",
-                        status_code=response.status,
-                        endpoint=endpoint
-                    )
-
-                # Check for other errors
-                if response.status != 200:
-                    error_text: str = await response.text()
-                    raise RequestError(
-                        "Request failed",
-                        status_code=response.status,
-                        response_text=error_text,
-                        endpoint=endpoint
-                    )
-
-                data: Dict[str, Any] = await response.json()
-                logger.debug("File upload request successful")
-                return data
-
-        except aiohttp.ClientError as e:
-            logger.error(f"Request error: {str(e)}")
-            raise RequestError(
-                f"Network error: {str(e)}",
-                endpoint=endpoint,
-                original_error=e
-            )
-
     @with_retry(max_attempts=3, delay=1.0)
     async def analyze_text(self, text: str) -> TextAnalysisResult:
         """
@@ -297,7 +233,7 @@ class ToxicityDetectorAPI(BaseRapidAPI):
                 content_type='audio/mpeg'
             )
 
-        data: Dict[str, Any] = await self._make_request_with_file("/analyze-audio", form)
+        data: Dict[str, Any] = await self._post_form_data("/analyze-audio", form)
 
         result: AudioAnalysisResult = AudioAnalysisResult.from_dict(data)
         logger.info(f"Audio analysis complete: blocked={result.blocked}")

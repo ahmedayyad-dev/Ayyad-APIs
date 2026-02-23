@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 
 # Import shared utilities
 from .utils import (
@@ -43,7 +43,6 @@ from .porn_detection import (
 
 from .youtube_to_telegram import (
     YouTubeAPI,
-    DownloadError,
     APIResponseError as YouTubeAPIResponseError,
     BackgroundJobError,
     Channel,
@@ -97,7 +96,7 @@ from .toxicity_detector import (
     ToxicityAuthenticationError,
     ToxicityRequestError,
     ToxicityInvalidInputError,
-    BlockedWord,
+    ObfuscatedWord,
     TextAnalysisResult,
     AudioAnalysisResult,
 )
@@ -154,7 +153,6 @@ __all__ = [
 
     # YouTube to Telegram
     "YouTubeAPI",
-    "DownloadError",
     "YouTubeAPIResponseError",
     "BackgroundJobError",
     "Channel",
@@ -204,7 +202,7 @@ __all__ = [
     "ToxicityAuthenticationError",
     "ToxicityRequestError",
     "ToxicityInvalidInputError",
-    "BlockedWord",
+    "ObfuscatedWord",
     "TextAnalysisResult",
     "AudioAnalysisResult",
 

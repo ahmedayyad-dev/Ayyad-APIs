@@ -1,6 +1,5 @@
 from .core import (
     YouTubeAPI,
-    DownloadError,
     APIResponseError,
     BackgroundJobError,
     Channel,
@@ -18,7 +17,6 @@ from .core import (
 
 __all__ = [
     "YouTubeAPI",
-    "DownloadError",
     "APIResponseError",
     "BackgroundJobError",
     "Channel",

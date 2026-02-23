@@ -15,7 +15,7 @@ from ..utils import (
     AuthenticationError,
     RequestError,
     InvalidInputError,
-    DownloadError as BaseDownloadError,
+    DownloadError,
     APIConfig,
     with_retry,
 )
@@ -23,14 +23,7 @@ from ..utils import (
 logger = logging.getLogger(__name__)
 
 
-# ==================== Exception Aliases (Backward Compatibility) ====================
-
-class DownloadError(BaseDownloadError):
-    """Error when download fails"""
-    def __init__(self, reason: str):
-        super().__init__(f"Download failed: {reason}")
-        self.reason = reason
-
+# ==================== Exception Aliases ====================
 
 class APIResponseError(RequestError):
     """Error when API doesn't return 200 status or returns an error message"""
@@ -515,76 +508,19 @@ class YouTubeAPI(BaseRapidAPI):
     async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
         """Download file from URL to local path with retry support"""
-        if not self._session:
-            raise DownloadError("Session not initialized")
-
-        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        from ..utils import download_file as _download_file
 
         retries = max_retries if max_retries is not None else self._max_retries
         delay = retry_delay if retry_delay is not None else self._retry_delay
 
-        last_error = None
-
-        for attempt in range(retries):
-            try:
-                logger.info(f"[Download] Starting download from: {url} (Attempt {attempt + 1}/{retries})")
-                async with self._session.get(url) as response:
-                    if response.status != 200:
-                        raise DownloadError(f"HTTP {response.status}: Download failed")
-
-                    total_size = int(response.headers.get('content-length', 0))
-
-                    with open(file_path, "wb") as f:
-                        downloaded = 0
-                        last_logged = 0
-
-                        async for chunk in response.content.iter_chunked(8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
-
-                            if total_size > 0:
-                                percentage = (downloaded / total_size) * 100
-                                print(f"\r[Download] Progress: {percentage:.1f}%", end="", flush=True)
-
-                                current_milestone = int(percentage // 10) * 10
-                                if current_milestone > last_logged and current_milestone > 0:
-                                    self._log_progress_checkpoint(current_milestone, "% completed")
-                                    last_logged = current_milestone
-                            else:
-                                print(f"\r[Download] Downloaded: {downloaded:,} bytes", end="", flush=True)
-                                current_mb = downloaded // (1024 * 1024)
-                                if current_mb > last_logged:
-                                    self._log_progress_checkpoint(current_mb, "MB downloaded")
-                                    last_logged = current_mb
-
-                    print()
-                    logger.info(f"[Download] Success - {file_path} ({downloaded:,} bytes)")
-                    return DownloadResult(file_path=file_path, file_size=downloaded)
-
-            except DownloadError as e:
-                last_error = e
-                if attempt < retries - 1:
-                    logger.warning(f"[Download] Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(f"[Download] All {retries} attempts failed")
-                    raise
-            except Exception as e:
-                last_error = DownloadError(f"Download error: {str(e)}")
-                if attempt < retries - 1:
-                    logger.warning(f"[Download] Attempt {attempt + 1} failed: {e}. Retrying in {delay} seconds...")
-                    await asyncio.sleep(delay)
-                else:
-                    logger.error(f"[Download] All {retries} attempts failed")
-                    raise last_error
-
-        if last_error:
-            raise last_error
-        raise DownloadError("Download failed for unknown reason")
-
-    def _log_progress_checkpoint(self, value: int, unit: str):
-        print()
-        logger.info(f"[Download] {value}{unit}")
+        result_path = await _download_file(
+            url=url, output_path=file_path,
+            max_retries=retries, retry_delay=delay,
+            show_progress=True, session=self._session
+        )
+        if result_path is None:
+            raise DownloadError(f"Failed to download from {url}")
+        return DownloadResult(file_path=result_path, file_size=Path(result_path).stat().st_size)
 
     def _extract_error_message(self, error_text: str) -> str:
         """Extract error message from API error response"""
