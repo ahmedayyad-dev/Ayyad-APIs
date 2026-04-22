@@ -110,6 +110,16 @@ from .translator import (
     TranslationResult,
 )
 
+from .zulvexai import (
+    ZulvexAIAPI,
+    ChatResult,
+    ZulvexAIError,
+    ZulvexAIAuthenticationError,
+    ZulvexAIClientError,
+    ZulvexAIRequestError,
+    ZulvexAIInvalidInputError,
+)
+
 __all__ = [
     "__version__",
 
@@ -213,4 +223,13 @@ __all__ = [
     "TranslatorRequestError",
     "TranslatorInvalidInputError",
     "TranslationResult",
+
+    # ZulvexAI
+    "ZulvexAIAPI",
+    "ChatResult",
+    "ZulvexAIError",
+    "ZulvexAIAuthenticationError",
+    "ZulvexAIClientError",
+    "ZulvexAIRequestError",
+    "ZulvexAIInvalidInputError",
 ]
