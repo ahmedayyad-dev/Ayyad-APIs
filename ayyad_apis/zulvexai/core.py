@@ -49,10 +49,8 @@ class ChatResult(BaseResponse):
         """Create ChatResult from API response dictionary."""
         # The API may return the response under different keys
         response_text = (
-            data.get("response")
-            or data.get("message")
-            or data.get("text")
-            or data.get("content")
+            data.get("reply")
+            or data.get("messages")
             or str(data)
         )
         return cls(
