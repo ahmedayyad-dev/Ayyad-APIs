@@ -66,53 +66,12 @@ from .youtube_suggest import (
     SuggestionResult,
 )
 
-from .pinterest import (
-    PinterestAPI,
-    PinterestAPIError,
-    PinterestAuthenticationError,
-    PinterestDownloadError,
-    PinterestInvalidURLError,
-    PinterestRequestError,
-    Thumbnail,
-    ImageMetadata,
-    ImageDownloadResult,
-    VideoDownloadResult,
-    BoardDownloadResult,
-    BatchDownloadResult,
-    ProfileDownloadResult,
-)
-
-from .alltube_extractor import (
-    AllTubeAPI,
-    AllTubeError,
-    AllTubeAuthenticationError,
-    AllTubeRequestError,
-    AllTubeInvalidURLError,
-)
-
-from .toxicity_detector import (
-    ToxicityDetectorAPI,
-    ToxicityDetectorError,
-    ToxicityAuthenticationError,
-    ToxicityRequestError,
-    ToxicityInvalidInputError,
-    ObfuscatedWord,
-    TextAnalysisResult,
-    AudioAnalysisResult,
-)
-
-from .translator import (
-    TranslatorAPI,
-    TranslatorError,
-    TranslatorAuthenticationError,
-    TranslatorRequestError,
-    TranslatorInvalidInputError,
-    TranslationResult,
-)
-
 from .zulvexai import (
     ZulvexAIAPI,
-    ChatResult,
+    DeepSeekResult,
+    GeminiResult,
+    ChatGPTResult,
+    MistralResult,
     ZulvexAIError,
     ZulvexAIAuthenticationError,
     ZulvexAIClientError,
@@ -184,49 +143,12 @@ __all__ = [
     "ProcessingError",
     "SuggestionResult",
 
-    # Pinterest
-    "PinterestAPI",
-    "PinterestAPIError",
-    "PinterestAuthenticationError",
-    "PinterestDownloadError",
-    "PinterestInvalidURLError",
-    "PinterestRequestError",
-    "Thumbnail",
-    "ImageMetadata",
-    "ImageDownloadResult",
-    "VideoDownloadResult",
-    "BoardDownloadResult",
-    "BatchDownloadResult",
-    "ProfileDownloadResult",
-
-    # AllTube CDN Extractor
-    "AllTubeAPI",
-    "AllTubeError",
-    "AllTubeAuthenticationError",
-    "AllTubeRequestError",
-    "AllTubeInvalidURLError",
-
-    # Toxicity Detector
-    "ToxicityDetectorAPI",
-    "ToxicityDetectorError",
-    "ToxicityAuthenticationError",
-    "ToxicityRequestError",
-    "ToxicityInvalidInputError",
-    "ObfuscatedWord",
-    "TextAnalysisResult",
-    "AudioAnalysisResult",
-
-    # AI Translator
-    "TranslatorAPI",
-    "TranslatorError",
-    "TranslatorAuthenticationError",
-    "TranslatorRequestError",
-    "TranslatorInvalidInputError",
-    "TranslationResult",
-
     # ZulvexAI
     "ZulvexAIAPI",
-    "ChatResult",
+    "DeepSeekResult",
+    "GeminiResult",
+    "ChatGPTResult",
+    "MistralResult",
     "ZulvexAIError",
     "ZulvexAIAuthenticationError",
     "ZulvexAIClientError",

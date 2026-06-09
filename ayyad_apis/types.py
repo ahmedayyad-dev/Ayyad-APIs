@@ -30,6 +30,9 @@ PornLabel = Literal["Safe", "Unsafe"]
 Language = Literal["ar", "en", "fr", "es", "de", "it", "pt", "ru", "zh", "ja", "ko"]
 """Supported language codes."""
 
+DeepSeekModelType = Literal["default", "expert", "vision"]
+"""DeepSeek model types for ZulvexAI."""
+
 
 # ==================== TypedDict Definitions ====================
 
@@ -42,14 +45,6 @@ class RapidAPIResponse(TypedDict):
     message: NotRequired[str]
 
 
-class ImageMetadataDict(TypedDict):
-    """Image metadata type."""
-    width: NotRequired[int]
-    height: NotRequired[int]
-    file_size: NotRequired[int]
-    format: NotRequired[str]
-
-
 class VideoMetadataDict(TypedDict):
     """Video metadata type."""
     duration: NotRequired[int]
@@ -58,13 +53,6 @@ class VideoMetadataDict(TypedDict):
     format: NotRequired[str]
     bitrate: NotRequired[int]
     fps: NotRequired[float]
-
-
-class ThumbnailDict(TypedDict):
-    """Thumbnail information."""
-    url: str
-    width: int
-    height: int
 
 
 class ErrorDict(TypedDict):
@@ -107,22 +95,6 @@ class PornDetectionResultDict(TypedDict):
     is_safe: bool
 
 
-class TranslationResultDict(TypedDict):
-    """Translation result structure."""
-    original_text: str
-    translated_text: str
-    word_count: int
-    source_lang: NotRequired[str]
-    target_lang: str
-
-
-class ToxicityResultDict(TypedDict):
-    """Toxicity detection result structure."""
-    confidence: float
-    is_toxic: bool
-    words: List[Dict[str, str]]
-
-
 class YouTubeVideoDict(TypedDict):
     """YouTube video information."""
     video_id: str
@@ -144,13 +116,9 @@ __all__ = [
 
     # TypedDict
     "RapidAPIResponse",
-    "ImageMetadataDict",
     "VideoMetadataDict",
-    "ThumbnailDict",
     "ErrorDict",
     "PornDetectionResultDict",
-    "TranslationResultDict",
-    "ToxicityResultDict",
     "YouTubeVideoDict",
 
     # Type Aliases
