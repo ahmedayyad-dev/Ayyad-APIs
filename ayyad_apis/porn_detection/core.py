@@ -105,15 +105,13 @@ class ImageDetectionResult(BaseResponse):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with computed properties."""
-        return {
-            "label": self.label,
-            "nsfw_prob": self.nsfw_prob,
-            "threshold": self.threshold,
-            "success": self.success,
+        data = super().to_dict()
+        data.update({
             "is_nsfw": self.is_nsfw,
             "confidence_percentage": self.confidence_percentage,
-            "safety_level": self.safety_level
-        }
+            "safety_level": self.safety_level,
+        })
+        return data
 
     # to_json() inherited from BaseResponse
 
@@ -233,15 +231,14 @@ class VideoDetectionResult(BaseResponse):
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary with computed properties."""
-        return {
-            "nsfw": self.nsfw,
-            "reason": self.reason,
+        data = super().to_dict()
+        data.update({
             "thresholds": self.thresholds.to_dict() if self.thresholds else None,
             "stats": self.stats.to_dict() if self.stats else None,
-            "success": self.success,
             "is_nsfw": self.is_nsfw,
-            "safety_level": self.safety_level
-        }
+            "safety_level": self.safety_level,
+        })
+        return data
 
     # to_json() inherited from BaseResponse
 

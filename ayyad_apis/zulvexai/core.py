@@ -32,46 +32,16 @@ ZulvexAIRequestError = RequestError
 ZulvexAIInvalidInputError = InvalidInputError
 
 
-# ==================== Data Models ====================
+# ==================== Data Model ====================
 
 
 @dataclass
-class DeepSeekResult(BaseResponse):
-    """Response from DeepSeek chat."""
+class ChatResult(BaseResponse):
+    """Response from ZulvexAI chat provider."""
     reply: str
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "DeepSeekResult":
-        return cls(reply=data.get("reply", ""))
-
-
-@dataclass
-class GeminiResult(BaseResponse):
-    """Response from Gemini chat."""
-    reply: str
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GeminiResult":
-        return cls(reply=data.get("reply", ""))
-
-
-@dataclass
-class ChatGPTResult(BaseResponse):
-    """Response from ChatGPT."""
-    reply: str
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "ChatGPTResult":
-        return cls(reply=data.get("reply", ""))
-
-
-@dataclass
-class MistralResult(BaseResponse):
-    """Response from Mistral chat."""
-    reply: str
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "MistralResult":
+    def from_dict(cls, data: Dict[str, Any]) -> "ChatResult":
         return cls(reply=data.get("reply", ""))
 
 
@@ -105,6 +75,13 @@ class ZulvexAIAPI(BaseRapidAPI):
             raise InvalidInputError("Prompt cannot be empty")
         return prompt.strip()
 
+    async def _chat(self, endpoint: str, prompt: str, **extra: Any) -> ChatResult:
+        prompt = self._validate_prompt(prompt)
+        payload: Dict[str, Any] = {"prompt": prompt}
+        payload.update(extra)
+        data = await self._make_request("POST", endpoint, json=payload)
+        return ChatResult.from_dict(data)
+
     @with_retry(max_attempts=3, delay=1.0)
     async def deepseek(
         self,
@@ -112,79 +89,33 @@ class ZulvexAIAPI(BaseRapidAPI):
         thinking_enabled: bool = False,
         search_enabled: bool = False,
         model_type: DeepSeekModelType = "default",
-    ) -> DeepSeekResult:
-        """
-        Send a prompt to DeepSeek AI.
-
-        Args:
-            prompt: The message to send to the AI
-            thinking_enabled: Enable deep thinking mode
-            search_enabled: Enable web search
-            model_type: Model variant - "default", "expert", or "vision"
-
-        Returns:
-            DeepSeekResult with the AI response
-        """
-        prompt = self._validate_prompt(prompt)
-        payload = {
-            "prompt": prompt,
-            "thinking_enabled": thinking_enabled,
-            "search_enabled": search_enabled,
-            "model_type": model_type,
-        }
-        data = await self._make_request("POST", "/deepseek", json=payload)
-        return DeepSeekResult.from_dict(data)
+    ) -> ChatResult:
+        """Send a prompt to DeepSeek AI."""
+        return await self._chat(
+            "/deepseek", prompt,
+            thinking_enabled=thinking_enabled,
+            search_enabled=search_enabled,
+            model_type=model_type,
+        )
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def gemini(self, prompt: str) -> GeminiResult:
-        """
-        Send a prompt to Google Gemini.
-
-        Args:
-            prompt: The message to send to the AI
-
-        Returns:
-            GeminiResult with the AI response
-        """
-        prompt = self._validate_prompt(prompt)
-        data = await self._make_request("POST", "/gemini", json={"prompt": prompt})
-        return GeminiResult.from_dict(data)
+    async def gemini(self, prompt: str) -> ChatResult:
+        """Send a prompt to Google Gemini."""
+        return await self._chat("/gemini", prompt)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def chatgpt(self, prompt: str) -> ChatGPTResult:
-        """
-        Send a prompt to ChatGPT.
-
-        Args:
-            prompt: The message to send to the AI
-
-        Returns:
-            ChatGPTResult with the AI response
-        """
-        prompt = self._validate_prompt(prompt)
-        data = await self._make_request("POST", "/chatgpt", json={"prompt": prompt})
-        return ChatGPTResult.from_dict(data)
+    async def chatgpt(self, prompt: str) -> ChatResult:
+        """Send a prompt to ChatGPT."""
+        return await self._chat("/chatgpt", prompt)
 
     @with_retry(max_attempts=3, delay=1.0)
     async def mistral(
         self,
         prompt: str,
         search_enabled: bool = False,
-    ) -> MistralResult:
-        """
-        Send a prompt to Mistral AI.
-
-        Args:
-            prompt: The message to send to the AI
-            search_enabled: Enable web search
-
-        Returns:
-            MistralResult with the AI response
-        """
-        prompt = self._validate_prompt(prompt)
-        payload = {
-            "prompt": prompt,
-            "search_enabled": search_enabled,
-        }
-        data = await self._make_request("POST", "/mistral", json=payload)
-        return MistralResult.from_dict(data)
+    ) -> ChatResult:
+        """Send a prompt to Mistral AI."""
+        return await self._chat(
+            "/mistral", prompt,
+            search_enabled=search_enabled,
+        )

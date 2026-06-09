@@ -2,10 +2,7 @@
 
 from .core import (
     ZulvexAIAPI,
-    DeepSeekResult,
-    GeminiResult,
-    ChatGPTResult,
-    MistralResult,
+    ChatResult,
     ZulvexAIError,
     ZulvexAIAuthenticationError,
     ZulvexAIClientError,
@@ -15,10 +12,7 @@ from .core import (
 
 __all__ = [
     "ZulvexAIAPI",
-    "DeepSeekResult",
-    "GeminiResult",
-    "ChatGPTResult",
-    "MistralResult",
+    "ChatResult",
     "ZulvexAIError",
     "ZulvexAIAuthenticationError",
     "ZulvexAIClientError",

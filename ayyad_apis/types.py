@@ -18,12 +18,6 @@ except ImportError:
 HttpMethod = Literal["GET", "POST", "PUT", "DELETE", "PATCH"]
 """HTTP methods supported by API clients."""
 
-Quality = Literal["original", "high", "medium", "low"]
-"""Image quality levels for Pinterest and other media APIs."""
-
-MediaType = Literal["image", "video", "auto"]
-"""Media type for download operations."""
-
 PornLabel = Literal["Safe", "Unsafe"]
 """Porn detection labels."""
 
@@ -35,14 +29,6 @@ DeepSeekModelType = Literal["default", "expert", "vision"]
 
 
 # ==================== TypedDict Definitions ====================
-
-
-class RapidAPIResponse(TypedDict):
-    """Standard RapidAPI response structure."""
-    success: bool
-    data: NotRequired[Dict[str, Any]]
-    error: NotRequired[str]
-    message: NotRequired[str]
 
 
 class VideoMetadataDict(TypedDict):
@@ -75,9 +61,6 @@ if TYPE_CHECKING:
 ProgressCallback = Callable[["ProgressInfo"], None]
 """Callback function for progress tracking."""
 
-DownloadResult = Union[bytes, str, None]
-"""Result of download operation: bytes, file path string, or None if failed."""
-
 JsonDict = Dict[str, Any]
 """JSON dictionary type."""
 
@@ -85,45 +68,20 @@ Headers = Dict[str, str]
 """HTTP headers dictionary."""
 
 
-# ==================== API-Specific Types ====================
-
-
-class PornDetectionResultDict(TypedDict):
-    """Porn detection result structure."""
-    label: PornLabel
-    confidence: float
-    is_safe: bool
-
-
-class YouTubeVideoDict(TypedDict):
-    """YouTube video information."""
-    video_id: str
-    title: str
-    duration: NotRequired[int]
-    thumbnail: NotRequired[str]
-    channel: NotRequired[str]
-
-
 # ==================== Exports ====================
 
 __all__ = [
     # Literals
     "HttpMethod",
-    "Quality",
-    "MediaType",
     "PornLabel",
     "Language",
 
     # TypedDict
-    "RapidAPIResponse",
     "VideoMetadataDict",
     "ErrorDict",
-    "PornDetectionResultDict",
-    "YouTubeVideoDict",
 
     # Type Aliases
     "ProgressCallback",
-    "DownloadResult",
     "JsonDict",
     "Headers",
 ]

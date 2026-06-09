@@ -13,11 +13,14 @@ from ..utils import (
     BaseResponse,
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     DownloadError,
     APIConfig,
     with_retry,
+    validate_rapidapi_response,
+    download_file as _download_file,
 )
 
 logger = logging.getLogger(__name__)
@@ -407,13 +410,6 @@ class YouTubeAPI(BaseRapidAPI):
 
         try:
             async with self._session.get(url, headers=headers, params=params) as response:
-                if response.status in (401, 403):
-                    raise AuthenticationError(
-                        "Authentication failed",
-                        status_code=response.status,
-                        endpoint=endpoint
-                    )
-
                 if response.status == 425:
                     try:
                         data = await response.json()
@@ -437,30 +433,17 @@ class YouTubeAPI(BaseRapidAPI):
                         endpoint=endpoint,
                     )
 
-                if response.status != 200:
-                    error_text = await response.text()
-                    clean_message = self._extract_error_message(error_text)
-                    raise RequestError(
-                        clean_message,
-                        status_code=response.status,
-                        endpoint=endpoint
-                    )
-
-                try:
-                    data = await response.json()
-                except Exception:
-                    text_response = await response.text()
-                    raise RequestError(
-                        text_response or "Empty response from API",
-                        status_code=response.status,
-                        endpoint=endpoint
-                    )
+                data = await validate_rapidapi_response(
+                    response,
+                    AuthenticationError,
+                    RequestError,
+                    ClientError,
+                )
 
                 if not isinstance(data, dict):
                     return data
 
                 try_after = data.get("try_after")
-
                 if try_after is not None:
                     if try_after > self._max_wait_time:
                         error_msg = data.get("message", f"Download delay required: {try_after} seconds")
@@ -474,17 +457,13 @@ class YouTubeAPI(BaseRapidAPI):
                     await asyncio.sleep(try_after)
 
                     logger.info("Retrying request after waiting...")
-                    async with self._session.get(url, headers=headers, params=params) as retry_response:  # headers already has extra_headers merged
-                        if retry_response.status != 200:
-                            error_text = await retry_response.text()
-                            clean_message = self._extract_error_message(error_text)
-                            raise RequestError(
-                                clean_message,
-                                status_code=retry_response.status,
-                                endpoint=endpoint
-                            )
-
-                        data = await retry_response.json()
+                    async with self._session.get(url, headers=headers, params=params) as retry_response:
+                        data = await validate_rapidapi_response(
+                            retry_response,
+                            AuthenticationError,
+                            RequestError,
+                            ClientError,
+                        )
 
                 if data.get("success", False) is False:
                     error_msg = data.get("message") or data.get("messages", "Unknown error")
@@ -495,7 +474,7 @@ class YouTubeAPI(BaseRapidAPI):
 
                 return data
 
-        except (AuthenticationError, RequestError):
+        except (AuthenticationError, RequestError, ClientError):
             raise
         except Exception as e:
             logger.error(f"Request error: {str(e)}")
@@ -508,8 +487,6 @@ class YouTubeAPI(BaseRapidAPI):
     async def download_file(self, url: str, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
         """Download file from URL to local path with retry support"""
-        from ..utils import download_file as _download_file
-
         retries = max_retries if max_retries is not None else self._max_retries
         delay = retry_delay if retry_delay is not None else self._retry_delay
 

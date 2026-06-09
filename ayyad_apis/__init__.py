@@ -68,10 +68,7 @@ from .youtube_suggest import (
 
 from .zulvexai import (
     ZulvexAIAPI,
-    DeepSeekResult,
-    GeminiResult,
-    ChatGPTResult,
-    MistralResult,
+    ChatResult,
     ZulvexAIError,
     ZulvexAIAuthenticationError,
     ZulvexAIClientError,
@@ -145,10 +142,7 @@ __all__ = [
 
     # ZulvexAI
     "ZulvexAIAPI",
-    "DeepSeekResult",
-    "GeminiResult",
-    "ChatGPTResult",
-    "MistralResult",
+    "ChatResult",
     "ZulvexAIError",
     "ZulvexAIAuthenticationError",
     "ZulvexAIClientError",
