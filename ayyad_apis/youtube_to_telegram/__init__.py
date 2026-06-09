@@ -13,6 +13,7 @@ from .core import (
     TryAfterResponse,
     DownloadProgressResponse,
     VideoSearchResult,
+    JobStatus,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "TryAfterResponse",
     "DownloadProgressResponse",
     "VideoSearchResult",
+    "JobStatus",
 ]

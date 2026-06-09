@@ -2,7 +2,7 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.3"
+__version__ = "0.2.5"
 
 # Import shared utilities
 from .utils import (
@@ -56,6 +56,7 @@ from .youtube_to_telegram import (
     TryAfterResponse,
     DownloadProgressResponse,
     VideoSearchResult,
+    JobStatus,
 )
 
 from .youtube_suggest import (
@@ -121,6 +122,7 @@ __all__ = [
     "YouTubeAPI",
     "YouTubeAPIResponseError",
     "BackgroundJobError",
+    "JobStatus",
     "Channel",
     "Video",
     "VideoInfoResponse",
