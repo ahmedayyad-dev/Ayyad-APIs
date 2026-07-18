@@ -2,13 +2,15 @@
 Ayyad APIs - Collection of Python wrappers for various APIs
 """
 
-__version__ = "0.2.5"
+__version__ = "0.2.6"
 
 # Import shared utilities
 from .utils import (
     download_file,
     create_rapidapi_headers,
     validate_rapidapi_response,
+    get_session,
+    close_session,
     # Base classes
     BaseResponse,
     BaseRapidAPI,
@@ -59,22 +61,10 @@ from .youtube_to_telegram import (
     JobStatus,
 )
 
-from .youtube_suggest import (
-    YouTubeSuggestAPI,
-    SuggestError,
-    APIResponseError as SuggestAPIResponseError,
-    ProcessingError,
-    SuggestionResult,
-)
-
-from .zulvexai import (
-    ZulvexAIAPI,
-    ChatResult,
-    ZulvexAIError,
-    ZulvexAIAuthenticationError,
-    ZulvexAIClientError,
-    ZulvexAIRequestError,
-    ZulvexAIInvalidInputError,
+from .tube_relay import (
+    TubeRelayAPI,
+    VideoInfo,
+    TubeRelayError,
 )
 
 __all__ = [
@@ -84,6 +74,8 @@ __all__ = [
     "download_file",
     "create_rapidapi_headers",
     "validate_rapidapi_response",
+    "get_session",
+    "close_session",
 
     # Base Classes
     "BaseResponse",
@@ -135,19 +127,8 @@ __all__ = [
     "DownloadProgressResponse",
     "VideoSearchResult",
 
-    # YouTube Suggest
-    "YouTubeSuggestAPI",
-    "SuggestError",
-    "SuggestAPIResponseError",
-    "ProcessingError",
-    "SuggestionResult",
-
-    # ZulvexAI
-    "ZulvexAIAPI",
-    "ChatResult",
-    "ZulvexAIError",
-    "ZulvexAIAuthenticationError",
-    "ZulvexAIClientError",
-    "ZulvexAIRequestError",
-    "ZulvexAIInvalidInputError",
+    # TubeRelay
+    "TubeRelayAPI",
+    "VideoInfo",
+    "TubeRelayError",
 ]

@@ -23,6 +23,27 @@ import aiofiles
 logger = logging.getLogger(__name__)
 
 
+# ==================== Global Session ====================
+
+_global_session: Optional[aiohttp.ClientSession] = None
+
+
+def get_session() -> aiohttp.ClientSession:
+    """Return the shared global aiohttp session, creating it on first call."""
+    global _global_session
+    if _global_session is None or _global_session.closed:
+        _global_session = aiohttp.ClientSession()
+    return _global_session
+
+
+async def close_session() -> None:
+    """Close the shared global session (optional, called automatically on process exit)."""
+    global _global_session
+    if _global_session and not _global_session.closed:
+        await _global_session.close()
+        _global_session = None
+
+
 # ==================== RapidAPI Helper Functions ====================
 
 def create_rapidapi_headers(
@@ -819,7 +840,7 @@ class BaseRapidAPI(ABC):
 
     async def __aenter__(self) -> "BaseRapidAPI":
         """Async context manager entry."""
-        self._session = aiohttp.ClientSession(timeout=self.timeout)
+        self._session = get_session()
         logger.debug("HTTP session created")
         return self
 
@@ -830,9 +851,7 @@ class BaseRapidAPI(ABC):
         exc_tb: Any
     ) -> bool:
         """Async context manager exit."""
-        if self._session:
-            await self._session.close()
-            logger.debug("HTTP session closed")
+        self._session = None
         return False
 
     def _get_headers(self, content_type: str = "application/json") -> Dict[str, str]:

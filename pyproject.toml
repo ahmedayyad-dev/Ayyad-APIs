@@ -10,7 +10,7 @@ readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
 authors = [
-    { name = "Ahmed Ayyad", email = "ahmedyad200@gmail.com" },
+    { name = "Ahmed Ayyad", email = "contact@ahmedayyad.dev" },
 ]
 classifiers = [
     "Programming Language :: Python :: 3",
