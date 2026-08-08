@@ -7,6 +7,7 @@ through RapidAPI, allowing users to detect pornographic content in images and vi
 Author: Ahmed Ayyad
 """
 
+import json
 import logging
 from dataclasses import dataclass, asdict
 from pathlib import Path
@@ -36,6 +37,21 @@ logger = logging.getLogger(__name__)
 DetectionError = APIError
 APIResponseError = RequestError
 UploadError = RequestError
+
+
+def _parse_451_or_raise(error: ClientError) -> Dict[str, Any]:
+    """Return the body of an HTTP 451 response as a valid result.
+
+    The Porn Detection API returns HTTP 451 (Unavailable For Legal Reasons)
+    with a valid JSON body carrying the detection result when NSFW content is
+    detected — treat it as a result instead of an error.
+    """
+    if error.status_code == 451 and error.response_text:
+        try:
+            return json.loads(error.response_text)
+        except ValueError:
+            pass
+    raise error
 
 
 # ==================== Video Analysis Configuration ====================
@@ -290,6 +306,20 @@ class PornDetectionAPI(BaseRapidAPI):
         super().__init__(api_key=api_key, timeout=timeout, config=config)
         self._max_retries: int = max_retries
         self._retry_delay: float = retry_delay
+
+    async def _make_request(self, method: str, endpoint: str, **kwargs: Any) -> Dict[str, Any]:
+        """Make HTTP request, converting an HTTP 451 detection result into a valid response."""
+        try:
+            return await super()._make_request(method, endpoint, **kwargs)
+        except ClientError as e:
+            return _parse_451_or_raise(e)
+
+    async def _post_form_data(self, endpoint: str, form_data: Any, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """POST multipart form data, converting an HTTP 451 detection result into a valid response."""
+        try:
+            return await super()._post_form_data(endpoint, form_data, params=params)
+        except ClientError as e:
+            return _parse_451_or_raise(e)
 
     # __aenter__ and __aexit__ inherited from BaseRapidAPI
 
