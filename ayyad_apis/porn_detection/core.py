@@ -40,17 +40,26 @@ UploadError = RequestError
 
 
 def _parse_451_or_raise(error: ClientError) -> Dict[str, Any]:
-    """Return the body of an HTTP 451 response as a valid result.
+    """Return an HTTP 451 response as a valid NSFW result.
 
     The Porn Detection API returns HTTP 451 (Unavailable For Legal Reasons)
-    with a valid JSON body carrying the detection result when NSFW content is
-    detected — treat it as a result instead of an error.
+    when NSFW content is detected. The video endpoint returns a full JSON body,
+    while the image endpoint returns an empty ``null`` body. Either way, HTTP 451
+    means the content was flagged as NSFW, so treat it as a result instead of an
+    error.
     """
-    if error.status_code == 451 and error.response_text:
-        try:
-            return json.loads(error.response_text)
-        except ValueError:
-            pass
+    if error.status_code == 451:
+        if error.response_text:
+            try:
+                data = json.loads(error.response_text)
+            except ValueError:
+                data = None
+            if isinstance(data, dict):
+                data["nsfw"] = True
+                data["label"] = "NSFW"
+                data["nsfw_prob"] = 1.0
+                return data
+        return {"nsfw": True, "label": "NSFW", "nsfw_prob": 1.0}
     raise error
 
 
@@ -87,7 +96,7 @@ class VideoAnalysisConfig(BaseResponse):
 @dataclass
 class ImageDetectionResult(BaseResponse):
     """Result of image content detection"""
-    label: str = "Safe"  # "Unsafe" or "Safe"
+    label: str = "SFW"  # "NSFW" or "SFW"
     nsfw_prob: float = 0.0
     threshold: float = 0.7
     success: bool = True
@@ -95,12 +104,12 @@ class ImageDetectionResult(BaseResponse):
     @property
     def is_nsfw(self) -> bool:
         """Check if content is unsafe"""
-        return self.label == "Unsafe"
+        return self.label.lower() == "nsfw" or self.nsfw_prob >= self.threshold
 
     @property
     def is_safe(self) -> bool:
         """Check if content is safe"""
-        return self.label == "Safe"
+        return not self.is_nsfw
 
     @property
     def confidence_percentage(self) -> str:
@@ -329,7 +338,7 @@ class PornDetectionAPI(BaseRapidAPI):
         """Parse image detection response"""
         try:
             return ImageDetectionResult(
-                label=data.get("label", "Safe"),
+                label=data.get("label", "SFW"),
                 nsfw_prob=data.get("nsfw_prob", 0.0),
                 threshold=data.get("threshold", 0.7),
                 success=True
