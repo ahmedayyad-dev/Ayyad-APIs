@@ -13,7 +13,7 @@ All clients are asynchronous and support ``async with``::
         print(await client.video_info("https://youtu.be/dQw4w9WgXcQ"))
 """
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"
 
 # Import shared utilities
 from .utils import (
