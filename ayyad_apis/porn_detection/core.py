@@ -9,7 +9,7 @@ Author: Ahmed Ayyad
 
 import json
 import logging
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Callable
 
@@ -39,14 +39,16 @@ APIResponseError = RequestError
 UploadError = RequestError
 
 
+# ==================== HTTP 451 ====================
+
 def _parse_451_or_raise(error: ClientError) -> Dict[str, Any]:
     """Return an HTTP 451 response as a valid NSFW result.
 
     The Porn Detection API returns HTTP 451 (Unavailable For Legal Reasons)
-    when NSFW content is detected. The video endpoint returns a full JSON body,
-    while the image endpoint returns an empty ``null`` body. Either way, HTTP 451
-    means the content was flagged as NSFW, so treat it as a result instead of an
-    error.
+    when NSFW content is detected. Every endpoint returns the full JSON body
+    with 451, so the body is used as-is when present and only synthesised when
+    it is missing. Either way, HTTP 451 means the content was flagged, so treat
+    it as a result instead of an error.
     """
     if error.status_code == 451:
         if error.response_text:
@@ -54,12 +56,20 @@ def _parse_451_or_raise(error: ClientError) -> Dict[str, Any]:
                 data = json.loads(error.response_text)
             except ValueError:
                 data = None
-            if isinstance(data, dict):
+            if isinstance(data, dict) and data:
                 data["nsfw"] = True
                 data["label"] = "NSFW"
                 data["nsfw_prob"] = 1.0
+                data["is_nsfw"] = True
+                data["policy"] = "BLOCK"
                 return data
-        return {"nsfw": True, "label": "NSFW", "nsfw_prob": 1.0}
+        return {
+            "nsfw": True,
+            "is_nsfw": True,
+            "label": "NSFW",
+            "nsfw_prob": 1.0,
+            "policy": "BLOCK",
+        }
     raise error
 
 
@@ -67,26 +77,34 @@ def _parse_451_or_raise(error: ClientError) -> Dict[str, Any]:
 
 @dataclass
 class VideoAnalysisConfig(BaseResponse):
-    """Configuration for video analysis"""
+    """Configuration for video analysis.
+
+    Defaults mirror the server's own defaults.
+    """
+
     start_sec: float = 0.0
-    duration_sec: float = 0.0  # 0.0 = analyze the entire video
-    thresh_high: float = 0.70
-    thresh_low: float = 0.60
+    duration_sec: Optional[float] = None  # None = analyze the entire video
+    thresh_high: float = 0.80
+    thresh_low: float = 0.70
     min_hit_duration: float = 1.0
     min_ratio: float = 0.02
-    smooth_window: int = 5
 
     def to_params(self) -> Dict[str, str]:
-        """Convert settings into API parameters"""
-        return {
+        """Convert settings into API parameters.
+
+        ``duration_sec`` is only sent when explicitly set, because the server
+        distinguishes "not provided" (``None``) from a numeric value.
+        """
+        params = {
             "start_sec": str(self.start_sec),
-            "duration_sec": str(self.duration_sec),
             "thresh_high": str(self.thresh_high),
             "thresh_low": str(self.thresh_low),
             "min_hit_duration": str(self.min_hit_duration),
             "min_ratio": str(self.min_ratio),
-            "smooth_window": str(self.smooth_window)
         }
+        if self.duration_sec is not None:
+            params["duration_sec"] = str(self.duration_sec)
+        return params
 
     # to_dict() and to_json() inherited from BaseResponse
 
@@ -95,30 +113,41 @@ class VideoAnalysisConfig(BaseResponse):
 
 @dataclass
 class ImageDetectionResult(BaseResponse):
-    """Result of image content detection"""
+    """Result of image content detection.
+
+    Fields mirror the API's ``classify_image_prob`` payload exactly.
+    """
+
     label: str = "SFW"  # "NSFW" or "SFW"
     nsfw_prob: float = 0.0
     threshold: float = 0.7
+    is_nsfw: bool = False
+    sfw_prob: float = 1.0
+    confidence: float = 0.0
+    confidence_level: Optional[str] = None  # very_low|low|medium|high|very_high
+    distance_from_threshold: float = 0.0
+    policy: Optional[str] = None  # ALLOW|REVIEW|BLOCK
+    scores: Optional[Dict[str, float]] = None
+    bbox: Optional[Dict[str, Any]] = None
+    crops: Optional[Any] = None
+    crop_decision: Optional[Any] = None
+    crop_scores: Optional[Dict[str, float]] = None
+    elapsed: Optional[float] = None
     success: bool = True
 
     @property
-    def is_nsfw(self) -> bool:
-        """Check if content is unsafe"""
-        return self.label.lower() == "nsfw" or self.nsfw_prob >= self.threshold
-
-    @property
     def is_safe(self) -> bool:
-        """Check if content is safe"""
+        """Check if content is safe."""
         return not self.is_nsfw
 
     @property
     def confidence_percentage(self) -> str:
-        """Confidence level as percentage"""
+        """Confidence level as percentage."""
         return f"{self.nsfw_prob * 100:.1f}%"
 
     @property
     def safety_level(self) -> str:
-        """Safety level description"""
+        """Human-readable safety summary derived from the probability."""
         if self.is_safe:
             return "Safe"
         elif self.nsfw_prob >= 0.9:
@@ -132,7 +161,7 @@ class ImageDetectionResult(BaseResponse):
         """Convert to dictionary with computed properties."""
         data = super().to_dict()
         data.update({
-            "is_nsfw": self.is_nsfw,
+            "is_safe": self.is_safe,
             "confidence_percentage": self.confidence_percentage,
             "safety_level": self.safety_level,
         })
@@ -141,61 +170,96 @@ class ImageDetectionResult(BaseResponse):
     # to_json() inherited from BaseResponse
 
 
-# ==================== Video Thresholds ====================
+# ==================== Video Result Models ====================
 
 @dataclass
 class VideoThresholds(BaseResponse):
-    """Thresholds used in video analysis"""
+    """Thresholds used in video analysis (mirrors the API's ``thresholds``)."""
     thresh_high: float = 0.8
     thresh_low: float = 0.7
     min_hit_duration: float = 1.0
     min_ratio: float = 0.02
+    min_hit_duration_effective: Optional[float] = None
 
     # to_dict() and to_json() inherited from BaseResponse
 
 
-# ==================== Video Statistics ====================
+@dataclass
+class VideoSegment(BaseResponse):
+    """A contiguous run of flagged frames (mirrors ``video.segments[]``)."""
+    start: float = 0.0
+    end: float = 0.0
+    duration: float = 0.0
+
+
+@dataclass
+class VideoAnalysis(BaseResponse):
+    """Video-level analysis metadata (mirrors the API's ``video`` object).
+
+    Note:
+        The API reports total/analysed duration and the frame sampling grid
+        here, not inside ``stats``.
+    """
+    duration: float = 0.0
+    sampled_duration: float = 0.0
+    frames_checked: int = 0
+    sample_step: float = 0.0
+    segments: List[VideoSegment] = field(default_factory=list)
+
+    @property
+    def duration_formatted(self) -> str:
+        """Format total duration as HH:MM:SS."""
+        return self._format_duration(self.duration)
+
+    def _format_duration(self, seconds: float) -> str:
+        hours: int = int(seconds // 3600)
+        minutes: int = int((seconds % 3600) // 60)
+        secs: int = int(seconds % 60)
+        return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        data = super().to_dict()
+        data["duration_formatted"] = self.duration_formatted
+        return data
+
 
 @dataclass
 class VideoStats(BaseResponse):
-    """Detailed video analysis statistics"""
+    """Probability statistics for video analysis (mirrors the API's ``stats``).
+
+    Note:
+        Total duration and the sampling grid live in :class:`VideoAnalysis`,
+        not here.
+    """
     max_prob: float = 0.0
     avg_prob: float = 0.0
-    total_duration: float = 0.0
     total_above_duration: float = 0.0
     ratio_above: float = 0.0
     max_streak: float = 0.0
-    sample_step: float = 0.0
-    num_samples: int = 0
 
     @property
     def max_prob_percentage(self) -> str:
-        """Maximum probability as percentage"""
+        """Maximum probability as percentage."""
         return f"{self.max_prob * 100:.1f}%"
 
     @property
     def avg_prob_percentage(self) -> str:
-        """Average probability as percentage"""
+        """Average probability as percentage."""
         return f"{self.avg_prob * 100:.1f}%"
 
     @property
     def ratio_above_percentage(self) -> str:
-        """Ratio above threshold as percentage"""
+        """Ratio above threshold as percentage."""
         return f"{self.ratio_above * 100:.1f}%"
 
     @property
-    def total_duration_formatted(self) -> str:
-        """Formatted total video duration"""
-        return self._format_duration(self.total_duration)
-
-    @property
     def total_above_duration_formatted(self) -> str:
-        """Formatted unsafe content duration"""
+        """Formatted unsafe content duration."""
         return self._format_duration(self.total_above_duration)
 
     @property
     def max_streak_formatted(self) -> str:
-        """Formatted longest continuous unsafe streak"""
+        """Formatted longest continuous unsafe streak."""
         return self._format_duration(self.max_streak)
 
     def _format_duration(self, seconds: float) -> str:
@@ -212,39 +276,47 @@ class VideoStats(BaseResponse):
             "max_prob_percentage": self.max_prob_percentage,
             "avg_prob_percentage": self.avg_prob_percentage,
             "ratio_above_percentage": self.ratio_above_percentage,
-            "total_duration_formatted": self.total_duration_formatted,
             "total_above_duration_formatted": self.total_above_duration_formatted,
-            "max_streak_formatted": self.max_streak_formatted
+            "max_streak_formatted": self.max_streak_formatted,
         })
         return data
 
     # to_json() inherited from BaseResponse
 
 
-# ==================== Video Detection Result ====================
-
 @dataclass
 class VideoDetectionResult(BaseResponse):
-    """Result of video content detection"""
+    """Result of video content detection.
+
+    ``predict_*`` endpoints answer HTTP 451 with this same payload when the
+    video is flagged; ``analyze_*`` always answer 200.
+    """
     nsfw: bool = False
     reason: str = ""
+    policy: Optional[str] = None  # ALLOW|REVIEW|BLOCK
     thresholds: Optional[VideoThresholds] = None
+    video: Optional[VideoAnalysis] = None
     stats: Optional[VideoStats] = None
+    bbox: Optional[Dict[str, Any]] = None
+    worst_frame: Optional[Dict[str, Any]] = None
+    scores: Optional[Dict[str, float]] = None
+    crops: Optional[Any] = None
+    elapsed: Optional[float] = None
     success: bool = True
 
     @property
     def is_nsfw(self) -> bool:
-        """Check if content is unsafe"""
+        """Check if content is unsafe."""
         return self.nsfw
 
     @property
     def is_safe(self) -> bool:
-        """Check if content is safe"""
+        """Check if content is safe."""
         return not self.nsfw
 
     @property
     def safety_level(self) -> str:
-        """Determine safety level based on statistics"""
+        """Determine safety level based on statistics."""
         if self.is_safe:
             return "Safe"
         elif self.stats and self.stats.max_prob >= 0.9:
@@ -259,6 +331,7 @@ class VideoDetectionResult(BaseResponse):
         data = super().to_dict()
         data.update({
             "thresholds": self.thresholds.to_dict() if self.thresholds else None,
+            "video": self.video.to_dict() if self.video else None,
             "stats": self.stats.to_dict() if self.stats else None,
             "is_nsfw": self.is_nsfw,
             "safety_level": self.safety_level,
@@ -272,12 +345,20 @@ class VideoDetectionResult(BaseResponse):
 
 @dataclass
 class UploadUrl(BaseResponse):
-    """Video upload URL"""
+    """Video upload URL returned by /request_video_upload_url.
+
+    Note:
+        The API builds this URL from its own ``request.base_url``, so it may
+        point at an internal host and may require an infrastructure-level
+        proxy-secret header that this library does not send. It is only
+        reachable when the API is fronted by a gateway that injects it.
+    """
     url: str
     key: str = ""
+    expires_in: Optional[int] = None
 
     def __post_init__(self) -> None:
-        """Extract key from the URL"""
+        """Extract key and TTL from the URL."""
         if "key=" in self.url:
             self.key = self.url.split("key=")[1].split("&")[0]
 
@@ -296,6 +377,13 @@ class PornDetectionAPI(BaseRapidAPI):
     - Response validation
     - Error handling
 
+    Two endpoint families are exposed:
+
+    - ``predict_*`` returns 451 when content is flagged. That is treated as a
+      result, not an error, so you always get a populated result object.
+    - ``analyze_*`` always returns 200 with the same payload plus per-class
+      scores and a bounding box, and never raises 451.
+
     Example:
         async with PornDetectionAPI(api_key="key") as client:
             result = await client.predict_image_url("https://example.com/image.jpg")
@@ -311,8 +399,8 @@ class PornDetectionAPI(BaseRapidAPI):
     DEFAULT_HOST = "porn-detection-api.p.rapidapi.com"
 
     def __init__(self, api_key: str, timeout: int = 60, max_retries: int = 3, retry_delay: float = 1.0,
-                 config: Optional[APIConfig] = None) -> None:
-        super().__init__(api_key=api_key, timeout=timeout, config=config)
+                 config: Optional[APIConfig] = None, own_session: bool = False) -> None:
+        super().__init__(api_key=api_key, timeout=timeout, config=config, own_session=own_session)
         self._max_retries: int = max_retries
         self._retry_delay: float = retry_delay
 
@@ -341,41 +429,70 @@ class PornDetectionAPI(BaseRapidAPI):
                 label=data.get("label", "SFW"),
                 nsfw_prob=data.get("nsfw_prob", 0.0),
                 threshold=data.get("threshold", 0.7),
-                success=True
+                is_nsfw=data.get("is_nsfw", False),
+                sfw_prob=data.get("sfw_prob", 1.0 - data.get("nsfw_prob", 0.0)),
+                confidence=data.get("confidence", 0.0),
+                confidence_level=data.get("confidence_level"),
+                distance_from_threshold=data.get("distance_from_threshold", 0.0),
+                policy=data.get("policy"),
+                scores=data.get("scores"),
+                bbox=data.get("bbox"),
+                crops=data.get("crops"),
+                crop_decision=data.get("crop_decision"),
+                crop_scores=data.get("crop_scores"),
+                elapsed=data.get("elapsed"),
+                success=True,
             )
         except Exception as e:
             logger.warning(f"Failed to parse image response: {e}")
             return ImageDetectionResult(success=False)
 
+    @staticmethod
+    def _parse_thresholds(data: Dict[str, Any]) -> VideoThresholds:
+        return VideoThresholds(
+            thresh_high=data.get("thresh_high", 0.8),
+            thresh_low=data.get("thresh_low", 0.7),
+            min_hit_duration=data.get("min_hit_duration", 1.0),
+            min_ratio=data.get("min_ratio", 0.02),
+            min_hit_duration_effective=data.get("min_hit_duration_effective"),
+        )
+
+    @staticmethod
+    def _parse_video_block(data: Dict[str, Any]) -> VideoAnalysis:
+        return VideoAnalysis(
+            duration=data.get("duration", 0.0),
+            sampled_duration=data.get("sampled_duration", 0.0),
+            frames_checked=data.get("frames_checked", 0),
+            sample_step=data.get("sample_step", 0.0),
+            segments=[VideoSegment(**s) for s in data.get("segments", []) if isinstance(s, dict)],
+        )
+
+    @staticmethod
+    def _parse_stats(data: Dict[str, Any]) -> VideoStats:
+        return VideoStats(
+            max_prob=data.get("max_prob", 0.0),
+            avg_prob=data.get("avg_prob", 0.0),
+            total_above_duration=data.get("total_above_duration", 0.0),
+            ratio_above=data.get("ratio_above", 0.0),
+            max_streak=data.get("max_streak", 0.0),
+        )
+
     def _parse_video_response(self, data: Dict[str, Any]) -> VideoDetectionResult:
         """Parse video detection response"""
         try:
-            thresholds_data: Dict[str, Any] = data.get("thresholds", {})
-            thresholds = VideoThresholds(
-                thresh_high=thresholds_data.get("thresh_high", 0.8),
-                thresh_low=thresholds_data.get("thresh_low", 0.7),
-                min_hit_duration=thresholds_data.get("min_hit_duration", 1.0),
-                min_ratio=thresholds_data.get("min_ratio", 0.02)
-            )
-
-            stats_data: Dict[str, Any] = data.get("stats", {})
-            stats = VideoStats(
-                max_prob=stats_data.get("max_prob", 0.0),
-                avg_prob=stats_data.get("avg_prob", 0.0),
-                total_duration=stats_data.get("total_duration", 0.0),
-                total_above_duration=stats_data.get("total_above_duration", 0.0),
-                ratio_above=stats_data.get("ratio_above", 0.0),
-                max_streak=stats_data.get("max_streak", 0.0),
-                sample_step=stats_data.get("sample_step", 0.0),
-                num_samples=stats_data.get("num_samples", 0)
-            )
-
             return VideoDetectionResult(
                 nsfw=data.get("nsfw", False),
                 reason=data.get("reason", ""),
-                thresholds=thresholds,
-                stats=stats,
-                success=True
+                policy=data.get("policy"),
+                thresholds=self._parse_thresholds(data.get("thresholds", {})),
+                video=self._parse_video_block(data.get("video", {})),
+                stats=self._parse_stats(data.get("stats", {})),
+                bbox=data.get("bbox"),
+                worst_frame=data.get("worst_frame"),
+                scores=data.get("scores"),
+                crops=data.get("crops"),
+                elapsed=data.get("elapsed"),
+                success=True,
             )
         except Exception as e:
             logger.warning(f"Failed to parse video response: {e}")
@@ -385,7 +502,11 @@ class PornDetectionAPI(BaseRapidAPI):
         """Parse response for upload URL request"""
         try:
             url: str = data.get("url", "")
-            return UploadUrl(url=url)
+            if not url:
+                raise APIResponseError("Upload URL response contained no 'url'")
+            return UploadUrl(url=url, expires_in=data.get("expires_in"))
+        except APIResponseError:
+            raise
         except Exception as e:
             logger.error(f"Failed to parse upload URL response: {e}")
             raise APIResponseError(f"Invalid upload URL response: {e}")
@@ -406,7 +527,7 @@ class PornDetectionAPI(BaseRapidAPI):
             url: Full URL (if is_external=True) or endpoint name without leading slash
             file_path: Path to the file to upload
             params: Optional query parameters
-            is_external: If True, url is a full S3 pre-signed URL; otherwise an API endpoint
+            is_external: If True, url is a full upload URL; otherwise an API endpoint
 
         Returns:
             JSON response as dictionary
@@ -433,9 +554,20 @@ class PornDetectionAPI(BaseRapidAPI):
                            content_type='application/octet-stream')
 
         if is_external:
-            # S3 pre-signed URL upload — keep full manual control over headers/errors
+            # Pre-signed/upload target — keep full manual control over headers
+            # and errors, but treat HTTP 451 as a detection result like every
+            # other endpoint.
             try:
-                headers: Dict[str, str] = self._get_headers()
+                # Content-Type MUST be omitted so aiohttp generates the
+                # multipart boundary. Sending application/json here makes the
+                # server unable to bind the file to its `file` parameter.
+                headers: Dict[str, str] = {
+                    "x-rapidapi-host": self.rapidapi_host,
+                    "x-rapidapi-key": self.api_key,
+                }
+                if self.config and self.config.extra_headers:
+                    headers.update(self.config.extra_headers)
+
                 async with self._session.post(url, headers=headers, data=data, params=params) as response:
                     if response.status in (401, 403):
                         raise AuthenticationError(
@@ -443,14 +575,25 @@ class PornDetectionAPI(BaseRapidAPI):
                             status_code=response.status,
                             endpoint=url
                         )
-                    if response.status != 200:
+                    if response.status == 451:
                         error_text: str = await response.text()
-                        raise UploadError(f"Upload failed - HTTP {response.status}: {error_text}")
+                        return _parse_451_or_raise(ClientError(
+                            "NSFW content detected",
+                            status_code=451,
+                            response_text=error_text
+                        ))
+                    if response.status != 200:
+                        error_text = await response.text()
+                        raise UploadError(
+                            f"Upload failed - HTTP {response.status}: {error_text}",
+                            status_code=response.status,
+                            response_text=error_text,
+                        )
                     try:
                         return await response.json()
-                    except Exception:
+                    except (aiohttp.ContentTypeError, ValueError) as e:
                         text: str = await response.text()
-                        raise UploadError(f"Invalid JSON response after upload: {text}")
+                        raise UploadError(f"Invalid JSON response after upload: {text}") from e
             except (AuthenticationError, UploadError):
                 raise
             except Exception as e:
@@ -463,42 +606,67 @@ class PornDetectionAPI(BaseRapidAPI):
     # -------------------- Image Detection --------------------
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def predict_image_url(self, image_url: str, threshold: float = 0.7) -> ImageDetectionResult:
+    async def predict_image_url(self, image_url: str, threshold: float = 0.7,
+                                multi_crop: bool = True) -> ImageDetectionResult:
         """
         Detect pornographic content from an image URL.
 
         Args:
             image_url: Image URL
-            threshold: Decision threshold (default: 0.7)
+            threshold: Decision threshold, 0.01-0.99 (default: 0.7)
+            multi_crop: Also score centre crops to reduce false negatives (default: True)
 
         Returns:
             ImageDetectionResult: Detection result
-
-        Raises:
-            APIResponseError: If the request fails
         """
         params: Dict[str, str] = {"image_url": image_url, "threshold": str(threshold)}
+        if not multi_crop:
+            params["multi_crop"] = "false"
         data: Dict[str, Any] = await self._make_request("GET", "/predict_image_url", params=params)
         return self._parse_image_response(data)
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def predict_image_upload(self, image_path: str, threshold: float = 0.7) -> ImageDetectionResult:
+    async def predict_image_upload(self, image_path: str, threshold: float = 0.7,
+                                   multi_crop: bool = True) -> ImageDetectionResult:
         """
         Detect pornographic content from a local image file.
 
         Args:
             image_path: Path to local image file
-            threshold: Decision threshold (default: 0.7)
+            threshold: Decision threshold, 0.01-0.99 (default: 0.7).
+                Note the server's own default for this endpoint is 0.80; it is
+                always sent explicitly so behaviour stays predictable.
+            multi_crop: Also score centre crops to reduce false negatives (default: True)
 
         Returns:
             ImageDetectionResult: Detection result
 
         Raises:
-            APIResponseError: If the request fails
             UploadError: If the file upload fails
         """
         params: Dict[str, str] = {"threshold": str(threshold)}
+        if not multi_crop:
+            params["multi_crop"] = "false"
         data: Dict[str, Any] = await self._make_file_request("predict_image_upload", image_path, params)
+        return self._parse_image_response(data)
+
+    @with_retry(max_attempts=3, delay=1.0)
+    async def analyze_image(self, image_url: str, threshold: float = 0.7,
+                            multi_crop: bool = True) -> ImageDetectionResult:
+        """
+        Full image analysis: per-class scores, policy and the tightest crop box.
+
+        Unlike :meth:`predict_image_url` this always returns HTTP 200, never 451.
+
+        Args:
+            image_url: Image URL
+            threshold: Decision threshold, 0.01-0.99 (default: 0.7)
+            multi_crop: Also score centre crops to reduce false negatives (default: True)
+        """
+        params: Dict[str, str] = {"image_url": image_url, "threshold": str(threshold)}
+        if not multi_crop:
+            params["multi_crop"] = "false"
+        data: Dict[str, Any] = await self._make_request("GET", "/analyze_image", params=params)
         return self._parse_image_response(data)
 
     # -------------------- Video Detection --------------------
@@ -514,9 +682,6 @@ class PornDetectionAPI(BaseRapidAPI):
 
         Returns:
             VideoDetectionResult: Detection result
-
-        Raises:
-            APIResponseError: If the request fails
         """
         if config is None:
             config = VideoAnalysisConfig()
@@ -528,18 +693,35 @@ class PornDetectionAPI(BaseRapidAPI):
         return self._parse_video_response(data)
 
     @with_retry(max_attempts=3, delay=1.0)
+    async def analyze_video(self, video_url: str, config: Optional[VideoAnalysisConfig] = None) -> VideoDetectionResult:
+        """
+        Full video analysis returning segments, policy and a bounding box on the worst frame.
+
+        Unlike :meth:`predict_video_url` this always returns HTTP 200, never 451.
+
+        Args:
+            video_url: Video URL
+            config: Analysis configuration
+        """
+        if config is None:
+            config = VideoAnalysisConfig()
+
+        params: Dict[str, str] = {"video_url": video_url}
+        params.update(config.to_params())
+
+        data: Dict[str, Any] = await self._make_request("GET", "/analyze_video", params=params)
+        return self._parse_video_response(data)
+
+    @with_retry(max_attempts=3, delay=1.0)
     async def request_video_upload_url(self, config: Optional[VideoAnalysisConfig] = None) -> UploadUrl:
         """
         Request an upload URL for video analysis.
 
         Args:
-            config: Analysis configuration
+            config: Analysis configuration (stored server-side with the key)
 
         Returns:
-            UploadUrl: Upload URL with key
-
-        Raises:
-            APIResponseError: If the request fails
+            UploadUrl: Upload URL with key and expiry
         """
         if config is None:
             config = VideoAnalysisConfig()
@@ -560,9 +742,9 @@ class PornDetectionAPI(BaseRapidAPI):
         Returns:
             VideoDetectionResult: Detection result
 
-        Raises:
-            APIResponseError: If the request fails
-            UploadError: If the file upload fails
+        Note:
+            A flagged (NSFW) video returns a populated result with ``nsfw=True``
+            rather than raising.
         """
         logger.info("Requesting video upload URL...")
         upload_info: UploadUrl = await self.request_video_upload_url(config)

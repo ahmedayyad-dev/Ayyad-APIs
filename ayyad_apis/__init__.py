@@ -1,8 +1,19 @@
 """
-Ayyad APIs - Collection of Python wrappers for various APIs
+Ayyad APIs - Collection of async Python wrappers for Ahmed Ayyad's public APIs.
+
+Three clients are exposed:
+
+- :class:`YouTubeAPI` — YouTube metadata, Telegram upload, server download, live HLS
+- :class:`PornDetectionAPI` — NSFW detection for images and videos
+- :class:`TubeRelayAPI` — YouTube info, search and streaming
+
+All clients are asynchronous and support ``async with``::
+
+    async with YouTubeAPI(api_key="...") as client:
+        print(await client.video_info("https://youtu.be/dQw4w9WgXcQ"))
 """
 
-__version__ = "0.2.8"
+__version__ = "0.2.0"
 
 # Import shared utilities
 from .utils import (
@@ -17,6 +28,7 @@ from .utils import (
     # Exception hierarchy
     APIError,
     AuthenticationError,
+    ClientError,
     RequestError,
     InvalidInputError,
     DownloadError,
@@ -40,23 +52,23 @@ from .porn_detection import (
     VideoDetectionResult,
     VideoStats,
     VideoThresholds,
+    VideoAnalysis,
+    VideoSegment,
     UploadUrl,
 )
 
 from .youtube_to_telegram import (
     YouTubeAPI,
     APIResponseError as YouTubeAPIResponseError,
-    BackgroundJobError,
+    DownloadInProgressError,
+    QueuedJobResponse,
     Channel,
     Video,
     VideoInfoResponse,
     TelegramResponse,
     DownloadResult,
     LiveStream,
-    ServerDownloadField,
     ServerResponse,
-    TryAfterResponse,
-    DownloadProgressResponse,
     VideoSearchResult,
     JobStatus,
 )
@@ -64,6 +76,7 @@ from .youtube_to_telegram import (
 from .tube_relay import (
     TubeRelayAPI,
     VideoInfo,
+    StreamUrl,
     TubeRelayError,
 )
 
@@ -84,6 +97,7 @@ __all__ = [
     # Exception Hierarchy
     "APIError",
     "AuthenticationError",
+    "ClientError",
     "RequestError",
     "InvalidInputError",
     "DownloadError",
@@ -108,12 +122,15 @@ __all__ = [
     "VideoDetectionResult",
     "VideoStats",
     "VideoThresholds",
+    "VideoAnalysis",
+    "VideoSegment",
     "UploadUrl",
 
     # YouTube to Telegram
     "YouTubeAPI",
     "YouTubeAPIResponseError",
-    "BackgroundJobError",
+    "DownloadInProgressError",
+    "QueuedJobResponse",
     "JobStatus",
     "Channel",
     "Video",
@@ -121,14 +138,12 @@ __all__ = [
     "TelegramResponse",
     "DownloadResult",
     "LiveStream",
-    "ServerDownloadField",
     "ServerResponse",
-    "TryAfterResponse",
-    "DownloadProgressResponse",
     "VideoSearchResult",
 
     # TubeRelay
     "TubeRelayAPI",
     "VideoInfo",
+    "StreamUrl",
     "TubeRelayError",
 ]

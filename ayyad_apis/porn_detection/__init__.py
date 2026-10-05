@@ -8,7 +8,9 @@ from .core import (
     VideoDetectionResult,
     VideoStats,
     VideoThresholds,
-    UploadUrl
+    VideoAnalysis,
+    VideoSegment,
+    UploadUrl,
 )
 
 __all__ = [
@@ -21,5 +23,7 @@ __all__ = [
     "VideoDetectionResult",
     "VideoStats",
     "VideoThresholds",
+    "VideoAnalysis",
+    "VideoSegment",
     "UploadUrl",
 ]

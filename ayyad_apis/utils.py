@@ -29,7 +29,15 @@ _global_session: Optional[aiohttp.ClientSession] = None
 
 
 def get_session() -> aiohttp.ClientSession:
-    """Return the shared global aiohttp session, creating it on first call."""
+    """Return the shared global aiohttp session, creating it on first call.
+
+    Warning:
+        An aiohttp session is bound to the event loop that created it. Sharing
+        one global session therefore means **every client must be used from the
+        same event loop**. Calling ``asyncio.run()`` separately for two clients
+        will fail on the second one. Pass ``own_session=True`` to a client, or
+        call :func:`close_session`, if you need to span multiple loops.
+    """
     global _global_session
     if _global_session is None or _global_session.closed:
         _global_session = aiohttp.ClientSession()
@@ -147,6 +155,18 @@ async def validate_rapidapi_response(
 # ==================== File Download Utilities ====================
 
 
+class _FatalDownloadError(Exception):
+    """Internal marker: a download failure that must not be retried (4xx)."""
+
+
+def _remove_partial(path: Path) -> None:
+    """Delete a partial/empty download, ignoring filesystem errors."""
+    try:
+        path.unlink()
+    except OSError:
+        pass
+
+
 async def download_file(
     url: str,
     output_path: Optional[Union[str, Path]] = None,
@@ -158,7 +178,8 @@ async def download_file(
     show_progress: bool = False,
     progress_callback: Optional[Callable[[int, int], None]] = None,
     chunk_size: int = 8192,
-    session: Optional[aiohttp.ClientSession] = None
+    session: Optional[aiohttp.ClientSession] = None,
+    allow_empty: bool = False
 ) -> Union[bytes, str, None]:
     """
     Download a file from URL - unified function for the entire library.
@@ -182,6 +203,10 @@ async def download_file(
         progress_callback: Optional callback function(downloaded_bytes, total_bytes)
         chunk_size: Size of chunks for streaming download (default: 8192)
         session: Optional aiohttp session to reuse (if None, creates new one)
+        allow_empty: If True, a zero-byte download is accepted. By default a
+            0-byte result is treated as a failure and retried, because several
+            streaming endpoints answer HTTP 200 with an empty body when every
+            upstream path fails.
 
     Returns:
         - bytes if return_bytes=True
@@ -213,9 +238,8 @@ async def download_file(
         )
 
     Note:
-        This function is used internally by all media result classes (VideoInfo,
-        Format, ImageDownloadResult, VideoDownloadResult, etc.) in their
-        download() methods.
+        This function is used internally by all media result classes
+        (VideoInfo, ServerResponse, etc.) in their download() methods.
     """
     if not url:
         logger.error("No URL provided")
@@ -237,14 +261,14 @@ async def download_file(
         final_output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Retry logic
-    close_session: bool = False
+    own_session: bool = False
 
     for attempt in range(max_retries):
         try:
             # Create session if not provided
             if session is None:
                 session = aiohttp.ClientSession()
-                close_session = True
+                own_session = True
 
             if attempt > 0:
                 logger.info(f"[Download] Retry attempt {attempt + 1}/{max_retries} for: {url}")
@@ -253,9 +277,12 @@ async def download_file(
                 if response.status != 200:
                     error_msg = f"HTTP {response.status}: Download failed"
                     logger.error(error_msg)
+                    # 4xx (except 429) will not resolve itself on retry.
+                    if 400 <= response.status < 500 and response.status != 429:
+                        raise _FatalDownloadError(error_msg)
                     raise Exception(error_msg)
 
-                total_size: int = int(response.headers.get('content-length', 0))
+                total_size: int = int(response.headers.get('content-length', 0) or 0)
 
                 if return_bytes:
                     # Simple read for bytes
@@ -268,9 +295,12 @@ async def download_file(
                         logger.info(f"[Download] Completed: {len(content):,} bytes")
 
                     # Close session if we created it
-                    if close_session:
+                    if own_session:
                         await session.close()
                         session = None
+
+                    if not content and not allow_empty:
+                        raise Exception("Downloaded 0 bytes")
 
                     return content
 
@@ -320,17 +350,34 @@ async def download_file(
                     logger.info(f"[Download] Completed: {final_output_path} ({downloaded:,} bytes)")
 
                 # Close session if we created it
-                if close_session:
+                if own_session:
                     await session.close()
                     session = None
 
+                # A 0-byte file is almost always a silent upstream failure, not a
+                # valid result. Remove it so callers never see an empty success.
+                if downloaded == 0 and not allow_empty:
+                    _remove_partial(final_output_path)
+                    raise Exception("Downloaded 0 bytes")
+
                 return str(final_output_path)
+
+        except _FatalDownloadError:
+            if own_session and session:
+                await session.close()
+                session = None
+            logger.error(f"[Download] Fatal error for {url}, not retrying")
+            return None
 
         except Exception as e:
             logger.error(f"[Download] Attempt {attempt + 1} failed: {str(e)}")
 
+            # Never leave a truncated file behind for the caller to pick up.
+            if not return_bytes and final_output_path and final_output_path.exists():
+                _remove_partial(final_output_path)
+
             # Close session on error if we created it
-            if close_session and session:
+            if own_session and session:
                 await session.close()
                 session = None
 
@@ -392,6 +439,10 @@ class APIError(Exception):
     - Retry count
     - Original exception
     - Timestamp
+    - non_retryable: Set True to stop @with_retry from retrying this error
+
+    Subclasses can opt out of retries declaratively by setting the class
+    attribute ``non_retryable = True``.
 
     Example:
         raise APIError(
@@ -402,6 +453,9 @@ class APIError(Exception):
         )
     """
 
+    #: Subclasses set this to True when retrying can never help.
+    non_retryable: bool = False
+
     def __init__(
         self,
         message: str,
@@ -411,7 +465,8 @@ class APIError(Exception):
         endpoint: Optional[str] = None,
         request_params: Optional[Dict[str, Any]] = None,
         retry_count: int = 0,
-        original_error: Optional[Exception] = None
+        original_error: Optional[Exception] = None,
+        non_retryable: Optional[bool] = None
     ) -> None:
         super().__init__(message)
         self.message: str = message
@@ -421,6 +476,10 @@ class APIError(Exception):
         self.request_params: Optional[Dict[str, Any]] = request_params
         self.retry_count: int = retry_count
         self.original_error: Optional[Exception] = original_error
+        # Only shadow the class attribute when explicitly requested, so a
+        # subclass opting in via ``non_retryable = True`` is not overridden.
+        if non_retryable is not None:
+            self.non_retryable = non_retryable
         self.timestamp: float = time.time()
 
     def to_dict(self) -> Dict[str, Any]:
@@ -591,15 +650,35 @@ def with_retry(
 
     Note:
         ClientError (4xx) and AuthenticationError are never retried as they
-        indicate client-side issues that won't be resolved by retrying.
+        indicate client-side issues that won't be resolved by retrying. Any
+        other :class:`APIError` carrying a 4xx ``status_code`` is also skipped,
+        which covers API-specific subclasses that subclass RequestError directly.
     """
-    # Default exceptions if not provided
+    # Default exceptions if not provided.
+    # Note: no_retry_exceptions are checked first and re-raised immediately, so
+    # they are deliberately absent here — listing them would be misleading.
     if exceptions is None:
-        exceptions = (RequestError, aiohttp.ClientError, ClientError, AuthenticationError)
+        exceptions = (RequestError, aiohttp.ClientError)
 
     # Exceptions that should NOT be retried
     if no_retry_exceptions is None:
         no_retry_exceptions = (ClientError, AuthenticationError)
+
+    def _is_client_side(e: Exception) -> bool:
+        """True for failures that cannot improve on retry.
+
+        Covers explicit opt-out (``non_retryable``), the dedicated client-side
+        exception types, and any API error carrying a 4xx status — which also
+        catches API-specific subclasses that inherit RequestError directly.
+        HTTP 429 is treated as client-side too: the APIs here do not send a
+        usable Retry-After, so backoff belongs to the caller.
+        """
+        if getattr(e, "non_retryable", False):
+            return True
+        if isinstance(no_retry_exceptions, tuple) and isinstance(e, no_retry_exceptions):
+            return True
+        status = getattr(e, "status_code", None)
+        return isinstance(status, int) and 400 <= status < 500
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -610,10 +689,13 @@ def with_retry(
             for attempt in range(max_attempts):
                 try:
                     return await func(*args, **kwargs)
-                except no_retry_exceptions:
-                    # Don't retry client errors or auth errors - re-raise immediately
-                    raise
-                except exceptions as e:
+                except Exception as e:
+                    if _is_client_side(e):
+                        raise
+
+                    if not isinstance(e, exceptions):
+                        raise
+
                     last_exception = e
 
                     if attempt < max_attempts - 1:
@@ -801,7 +883,8 @@ class BaseRapidAPI(ABC):
         api_key: str,
         rapidapi_host: Optional[str] = None,
         timeout: int = 30,
-        config: Optional[APIConfig] = None
+        config: Optional[APIConfig] = None,
+        own_session: bool = False
     ) -> None:
         """
         Initialize API client.
@@ -811,6 +894,9 @@ class BaseRapidAPI(ABC):
             rapidapi_host: RapidAPI host (uses DEFAULT_HOST if not provided)
             timeout: Request timeout in seconds (default: 30)
             config: Optional APIConfig instance (overrides individual params)
+            own_session: If True, this client creates and closes a dedicated
+                session instead of sharing the global one. Required when the
+                client is used across more than one event loop.
 
         Example:
             # Simple initialization
@@ -835,12 +921,16 @@ class BaseRapidAPI(ABC):
                 timeout=timeout
             )
 
+        self._own_session: bool = own_session
         self._session: Optional[aiohttp.ClientSession] = None
         logger.info(f"{self.__class__.__name__} initialized")
 
     async def __aenter__(self) -> "BaseRapidAPI":
         """Async context manager entry."""
-        self._session = get_session()
+        if self._own_session:
+            self._session = aiohttp.ClientSession(timeout=self.timeout)
+        else:
+            self._session = get_session()
         logger.debug("HTTP session created")
         return self
 
@@ -851,6 +941,8 @@ class BaseRapidAPI(ABC):
         exc_tb: Any
     ) -> bool:
         """Async context manager exit."""
+        if self._own_session and self._session and not self._session.closed:
+            await self._session.close()
         self._session = None
         return False
 

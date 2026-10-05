@@ -5,8 +5,7 @@ import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List, Any
-import asyncio
+from typing import Optional, List
 
 # Import base classes and utilities
 from ..utils import (
@@ -16,7 +15,6 @@ from ..utils import (
     AuthenticationError,
     ClientError,
     RequestError,
-    InvalidInputError,
     DownloadError,
     APIConfig,
     with_retry,
@@ -39,10 +37,15 @@ class APIResponseError(RequestError):
 # ==================== Enums ====================
 
 class JobStatus(str, Enum):
-    """All possible values for the `status` field in job-related responses."""
-    INITIALIZING = "initializing"
-    DOWNLOADING = "downloading"
-    BACKGROUND_PROCESSING = "background_processing"
+    """Status values the API reports for a queued download.
+
+    Note:
+        The API answers HTTP 202 with ``status="processing"`` when the same
+        video/format/quality is already being handled by another request. There
+        is no pollable progress endpoint, so this enum describes that one
+        queued state plus the terminal states.
+    """
+    PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -52,26 +55,26 @@ class JobStatus(str, Enum):
 @dataclass
 class Channel(BaseResponse):
     """Channel information"""
-    name: str = None
-    id: str = None
-    thumbnails: List[dict] = None
-    link: str = None
+    name: Optional[str] = None
+    id: Optional[str] = None
+    thumbnails: Optional[List[dict]] = None
+    link: Optional[str] = None
 
 
 @dataclass
 class Video(BaseResponse):
     """Base video object shared across multiple responses"""
     success: bool = False
-    video_title: str = None
-    video_id: str = None
-    video_url: str = None
-    thumbnail: str = None
-    view_count: int = None
-    duration: int = None
-    description: str = None
-    category: str = None
-    tags: List[str] = None
-    uploader: Channel = None
+    video_title: Optional[str] = None
+    video_id: Optional[str] = None
+    video_url: Optional[str] = None
+    thumbnail: Optional[str] = None
+    view_count: Optional[int] = None
+    duration: Optional[int] = None
+    description: Optional[str] = None
+    category: Optional[str] = None
+    tags: Optional[List[str]] = None
+    uploader: Optional[Channel] = None
 
     @property
     def duration_formatted(self) -> str:
@@ -96,101 +99,92 @@ class Video(BaseResponse):
 
 @dataclass
 class VideoInfoResponse(BaseResponse):
-    """Detailed response for /video-info endpoint"""
+    """Detailed response for /video_info endpoint"""
     success: bool = False
-    title: str = None
-    description: str = None
-    duration_seconds: int = None
-    duration_string: str = None
-    upload_date: str = None
-    view_count: int = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    duration_seconds: Optional[int] = None
+    duration_string: Optional[str] = None
+    upload_date: Optional[str] = None
+    view_count: Optional[int] = None
     concurrent_view_count: Optional[int] = None
-    thumbnail: str = None
+    thumbnail: Optional[str] = None
     language: Optional[str] = None
     has_subtitles: bool = False
-    subtitle_languages: List[str] = None
-    uploader_info: dict = None
-    id: str = None
-    webpage_url: str = None
-    webpage_url_domain: str = None
-    formats: List[dict] = None
+    subtitle_languages: Optional[List[str]] = None
+    uploader_info: Optional[dict] = None
+    id: Optional[str] = None
+    webpage_url: Optional[str] = None
+    webpage_url_domain: Optional[str] = None
+    formats: Optional[List[dict]] = None
 
 
 @dataclass
 class TelegramResponse(BaseResponse):
     """Response when uploading YouTube video to Telegram"""
-    file_url: str = None
-    message_id: int = None
-    chat_username: str = None
-    status: JobStatus = JobStatus.COMPLETED
+    file_url: Optional[str] = None
+    message_id: Optional[int] = None
+    chat_username: Optional[str] = None
     warning: Optional[str] = None
 
 
 @dataclass
 class DownloadResult(BaseResponse):
     """Represents result of a local file download"""
-    file_path: str = None
-    file_size: int = None
+    file_path: Optional[str] = None
+    file_size: Optional[int] = None
 
 
 @dataclass
 class LiveStream(BaseResponse):
     """Represents a live stream (HLS/MP4) or streaming URL"""
-    url: str = None
+    url: Optional[str] = None
     warning: Optional[str] = None
 
 
 @dataclass
-class TryAfterResponse(BaseResponse):
-    """Response when download is queued for background processing (HTTP 425)"""
-    status: str = "processing"
-    download_url: Optional[str] = None
+class QueuedJobResponse(BaseResponse):
+    """HTTP 202 body — this exact video is already being downloaded.
+
+    Attributes:
+        job_id: Server-side identifier of the in-flight job.
+        video_id: The video that is already queued.
+        status: Always ``"processing"``.
+        message: Human-readable explanation from the API.
+    """
     job_id: Optional[str] = None
-
-
-@dataclass
-class DownloadProgressResponse(BaseResponse):
-    """Response for /download_progress endpoint"""
-    job_id: str = None
-    status: str = None
-    percentage: Optional[float] = None
     video_id: Optional[str] = None
-    result: Optional[dict] = None
-    error: Optional[str] = None
-    timestamp: Optional[float] = None
-    downloaded_bytes: Optional[int] = None
-    total_bytes: Optional[int] = None
-    speed: Optional[float] = None
-    eta: Optional[float] = None
+    status: str = JobStatus.PROCESSING.value
     message: Optional[str] = None
-
-
-@dataclass
-class ServerDownloadField(BaseResponse):
-    """Kept for backward compatibility — now download_url is a top-level field"""
-    download_url: str = None
 
 
 @dataclass
 class ServerResponse(BaseResponse):
     """Response for /youtube_to_server — includes a temporary download URL (valid 10 min)"""
-    download_url: str = None
-    key: Optional[str] = None
-    video_id: Optional[str] = None
+    download_url: Optional[str] = None
     video_title: Optional[str] = None
-    duration: Optional[int] = None
-    status: JobStatus = JobStatus.COMPLETED
-    warning: Optional[str] = None
-
-    # Video metadata fields returned by the API
+    video_id: Optional[str] = None
     video_url: Optional[str] = None
     thumbnail: Optional[str] = None
     view_count: Optional[int] = None
+    duration: Optional[int] = None
     description: Optional[str] = None
     category: Optional[str] = None
     tags: Optional[List[str]] = None
-    uploader: Optional[dict] = None
+    uploader: Optional[Channel] = None
+    warning: Optional[str] = None
     _api_instance: Optional[YouTubeAPI] = None
+
+    @property
+    def key(self) -> Optional[str]:
+        """Stream key extracted from :attr:`download_url`.
+
+        The API does not return ``key`` as a top-level field; it only appears
+        inside the download URL's query string.
+        """
+        if not self.download_url or "key=" not in self.download_url:
+            return None
+        return self.download_url.split("key=")[1].split("&")[0]
 
     @property
     def duration_formatted(self) -> str:
@@ -210,15 +204,9 @@ class ServerResponse(BaseResponse):
             return f"{self.view_count / 1_000:.1f}K"
         return str(self.view_count)
 
-    # Backward-compat: expose old-style .download attribute
-    @property
-    def download(self) -> Optional[ServerDownloadField]:
-        if self.download_url:
-            return ServerDownloadField(download_url=self.download_url)
-        return None
-
     async def download_file(self, file_path: str, max_retries: Optional[int] = None,
                             retry_delay: Optional[float] = None) -> DownloadResult:
+        """Download the server-hosted file to ``file_path``."""
         if not self._api_instance:
             raise DownloadError("API instance not available")
         if not self.download_url:
@@ -234,8 +222,8 @@ class ServerResponse(BaseResponse):
 @dataclass
 class VideoSearchResult(BaseResponse):
     """Single video result from /search"""
-    title: str = None
-    id: str = None
+    title: Optional[str] = None
+    id: Optional[str] = None
     description: Optional[str] = None
     duration_seconds: Optional[int] = None
     duration_string: Optional[str] = None
@@ -246,25 +234,36 @@ class VideoSearchResult(BaseResponse):
     uploader_info: Optional[dict] = None
 
 
-class BackgroundJobError(RequestError):
-    """Raised when the API returns HTTP 425 — download is queued in background.
+class DownloadInProgressError(RequestError):
+    """Raised on HTTP 202 — the same video is already being downloaded.
 
-    Access the structured response via ``exception.response``.
+    The API deduplicates concurrent requests for the same
+    video/format/quality and answers HTTP 202 instead of doing the work twice.
+    There is no progress endpoint to poll, so the in-flight job finishes on its
+    own; retry the original request after a short delay.
+
+    Access the structured body via ``exception.response``.
 
     Example::
 
         try:
             result = await api.youtube_to_telegram("dQw4w9WgXcQ")
-        except BackgroundJobError as e:
-            print(f"Job queued. Job ID: {e.response.job_id}")
-            print(f"Download URL: {e.response.download_url}")
+        except DownloadInProgressError as e:
+            print(f"Already running as job {e.response.job_id}")
     """
 
-    def __init__(self, response: TryAfterResponse):
+    # Retrying cannot help: the API has already accepted this video and is
+    # working on it. A retry would just be rejected again, so this is raised
+    # immediately instead of being retried like a 5xx.
+    non_retryable = True
+
+    def __init__(self, response: QueuedJobResponse):
         self.response = response
         super().__init__(
-            "Download is queued for background processing",
-            status_code=425,
+            f"This video is already being processed (job {response.job_id}): "
+            f"{response.message or 'retry shortly'}",
+            status_code=202,
+            endpoint="youtube_to_telegram",
         )
 
 
@@ -272,34 +271,30 @@ class BackgroundJobError(RequestError):
 
 class YouTubeAPI(BaseRapidAPI):
     """
-    API client wrapper for YouTube to Telegram/Server/Host endpoints.
+    API client wrapper for YouTube to Telegram and YouTube to Server endpoints.
 
     Parameters:
         api_key: RapidAPI key.
         timeout: Request timeout in seconds (default 300).
         max_retries: Retry attempts for downloads (default 5).
         retry_delay: Seconds between retries (default 1.0).
-        cookies: Netscape-format cookie string sent as X-Cookies header.
-        wait_for_background: **Default True.** When the API queues a heavy job
-            in the background (HTTP 425), the client automatically waits and
-            polls until the job finishes, then returns the final result.
-            Set to ``False`` to raise ``BackgroundJobError`` immediately instead,
-            giving you full control over the retry logic.
+        cookies: Netscape-format cookie string sent as the ``X-Cookies`` header.
+        own_session: Use a dedicated session instead of the shared global one.
+            Required when the client is used across more than one event loop.
 
-    Example — default (auto-wait)::
+    Example::
 
         async with YouTubeAPI(api_key="key") as client:
             result = await client.youtube_to_telegram("dQw4w9WgXcQ")
             print(result.file_url)
 
-    Example — manual retry (wait_for_background=False)::
+    Example — handling a deduplicated request::
 
-        async with YouTubeAPI(api_key="key", wait_for_background=False) as client:
+        async with YouTubeAPI(api_key="key") as client:
             try:
                 result = await client.youtube_to_telegram("dQw4w9WgXcQ")
-            except BackgroundJobError as e:
-                print(f"Job queued. Job ID: {e.response.job_id}")
-                print(f"Download URL: {e.response.download_url}")
+            except DownloadInProgressError as e:
+                print(f"Already running as job {e.response.job_id}")
     """
 
     BASE_URL = "https://youtube-to-telegram-uploader-api.p.rapidapi.com"
@@ -307,13 +302,12 @@ class YouTubeAPI(BaseRapidAPI):
 
     def __init__(self, api_key: str, timeout: int = 300, max_retries: int = 5, retry_delay: float = 1.0,
                  cookies: Optional[str] = None, config: Optional[APIConfig] = None,
-                 wait_for_background: bool = True):
-        super().__init__(api_key=api_key, timeout=timeout, config=config)
+                 own_session: bool = False):
+        super().__init__(api_key=api_key, timeout=timeout, config=config, own_session=own_session)
 
         self._max_retries = max_retries
         self._retry_delay = retry_delay
         self._cookies = cookies
-        self._wait_for_background = wait_for_background
 
     def _parse_response_data(self, data: dict, response_class):
         """Helper to convert API response into dataclass objects"""
@@ -354,64 +348,42 @@ class YouTubeAPI(BaseRapidAPI):
                     else []
                 )
 
-        try:
-            return response_class(**parsed_data)
-        except TypeError as e:
-            logger.warning(f"Failed to create {response_class.__name__} with data: {parsed_data}")
-            logger.warning(f"Error: {e}")
-            safe_data = {}
-            for field_name, field_info in response_class.__dataclass_fields__.items():
-                safe_data[field_name] = parsed_data.get(field_name,
-                                                        field_info.default if field_info.default is not None else None)
-            return response_class(**safe_data)
+        # The API returns more fields than the dataclasses declare (and may add
+        # more over time), so select the declared fields instead of letting
+        # construction fail on the extras. Fields injected above — notably the
+        # private _api_instance that ServerResponse.download_file() depends on —
+        # are preserved, and anything absent simply keeps its dataclass default.
+        declared = response_class.__dataclass_fields__
+        safe_data = {name: value for name, value in parsed_data.items() if name in declared}
+        dropped = sorted(set(parsed_data) - set(safe_data))
+        if dropped:
+            logger.debug(f"Ignored undeclared fields for {response_class.__name__}: {dropped}")
+        return response_class(**safe_data)
 
-    async def _wait_for_completion(self, job_id: str, endpoint: str) -> dict:
-        """Poll /download_progress until the background job finishes, then return its result dict."""
-        if not job_id:
+    def _require_field(self, value, field_name: str, endpoint: str):
+        """Guard against an API response that parsed but carries no result.
+
+        Without this, a malformed or unexpected payload silently produces an
+        object whose main attribute is ``None``, and the caller has no way to
+        tell that apart from a legitimate empty result.
+        """
+        if value is None:
             raise RequestError(
-                "Background job queued but no job_id was provided to track it",
+                f"API response for {endpoint} did not contain '{field_name}'. "
+                f"This usually means the API returned an unexpected shape.",
                 endpoint=endpoint,
             )
-
-        logger.info(f"[{endpoint}] Job {job_id} queued. Polling for completion...")
-
-        poll_interval = 5
-        max_total_wait = 600
-
-        waited = 0
-        while waited < max_total_wait:
-            progress = await self._request("download_progress", {"job_id": job_id})
-            status = progress.get("status")
-
-            if status == "completed":
-                result = progress.get("result")
-                if not result:
-                    raise RequestError(
-                        f"Job {job_id} completed but returned no result data",
-                        endpoint=endpoint,
-                    )
-                logger.info(f"[{endpoint}] Job {job_id} completed successfully.")
-                return result
-
-            if status == "failed":
-                raise RequestError(
-                    progress.get("error") or "Background download failed",
-                    endpoint=endpoint,
-                )
-
-            pct = progress.get("percentage")
-            pct_str = f"{pct:.1f}%" if pct is not None else "..."
-            logger.info(f"[{endpoint}] Job {job_id}: {status} ({pct_str}). Next check in {poll_interval}s...")
-            await asyncio.sleep(poll_interval)
-            waited += poll_interval
-
-        raise RequestError(
-            f"Background job {job_id} did not complete within {max_total_wait}s",
-            endpoint=endpoint,
-        )
+        return value
 
     async def _request(self, endpoint: str, params: dict, extra_headers: Optional[dict] = None) -> dict:
-        """Make an API request with error handling"""
+        """Make an API request with error handling.
+
+        Raises:
+            DownloadInProgressError: On HTTP 202 (same video already queued).
+            AuthenticationError: On 401/403.
+            ClientError: On other 4xx (not retried).
+            RequestError: On 5xx or network failure (retried by callers).
+        """
         if not self._session:
             raise APIError("Session not initialized. Use async context manager.")
 
@@ -425,24 +397,20 @@ class YouTubeAPI(BaseRapidAPI):
 
         try:
             async with self._session.get(url, headers=headers, params=params) as response:
-                if response.status == 425:
+                if response.status == 202:
                     try:
                         data = await response.json()
                     except Exception:
-                        text_response = await response.text()
-                        data = {"status": "processing"}
+                        data = {}
+                    if not isinstance(data, dict):
+                        data = {}
 
-                    if not self._wait_for_background:
-                        raise BackgroundJobError(TryAfterResponse(
-                            status=data.get("status", "processing"),
-                            download_url=data.get("download_url"),
-                            job_id=data.get("job_id"),
-                        ))
-
-                    return await self._wait_for_completion(
+                    raise DownloadInProgressError(QueuedJobResponse(
                         job_id=data.get("job_id"),
-                        endpoint=endpoint,
-                    )
+                        video_id=data.get("video_id"),
+                        status=data.get("status", JobStatus.PROCESSING.value),
+                        message=data.get("message"),
+                    ))
 
                 data = await validate_rapidapi_response(
                     response,
@@ -535,7 +503,9 @@ class YouTubeAPI(BaseRapidAPI):
         if webhook_url is not None:
             params["webhook_url"] = webhook_url
         data = await self._request("youtube_to_server", params)
-        return self._parse_response_data(data, ServerResponse)
+        response = self._parse_response_data(data, ServerResponse)
+        self._require_field(response.download_url, "download_url", "youtube_to_server")
+        return response
 
     @with_retry(max_attempts=3, delay=1.0)
     async def youtube_to_telegram(
@@ -555,6 +525,10 @@ class YouTubeAPI(BaseRapidAPI):
             quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
             webhook_url: Optional URL to receive POST callback when upload completes
             format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+
+        Raises:
+            DownloadInProgressError: If the same video/format/quality is already
+                being processed by another request (HTTP 202).
         """
         params = {"video_id": video_id, "file_format": file_format, "quality": quality}
         if format is not None:
@@ -562,7 +536,9 @@ class YouTubeAPI(BaseRapidAPI):
         if webhook_url is not None:
             params["webhook_url"] = webhook_url
         data = await self._request("youtube_to_telegram", params)
-        return self._parse_response_data(data, TelegramResponse)
+        response = self._parse_response_data(data, TelegramResponse)
+        self._require_field(response.file_url, "file_url", "youtube_to_telegram")
+        return response
 
     @with_retry(max_attempts=3, delay=1.0)
     async def youtube_live_hls(self, video_id: str, audio_only: bool = False) -> LiveStream:
@@ -577,72 +553,35 @@ class YouTubeAPI(BaseRapidAPI):
             "youtube_live_hls",
             {"video_id": video_id, "audio_only": audio_only},
         )
-        return LiveStream(url=data.get("url"), warning=data.get("warning"))
-
-    @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_live_mp4(self, video_id: str, audio_only: bool = False) -> LiveStream:
-        """
-        Get MP4 live stream playback URL for a YouTube Live (valid 10 min).
-
-        Args:
-            video_id: YouTube live video ID (10-12 chars)
-            audio_only: Stream audio track only (no video). Default: False
-        """
-        data = await self._request(
-            "youtube_live_mp4",
-            {"video_id": video_id, "audio_only": audio_only},
-        )
-        return LiveStream(url=data.get("url"), warning=data.get("warning"))
+        stream = LiveStream(url=data.get("url"), warning=data.get("warning"))
+        self._require_field(stream.url, "url", "youtube_live_hls")
+        return stream
 
     @with_retry(max_attempts=3, delay=1.0)
     async def search(self, query: str, limit: int = 10) -> List[VideoSearchResult]:
         """
-        Search YouTube videos.
+        Search YouTube videos, or resolve a video URL to its metadata.
 
         Args:
-            query: Search query string
-            limit: Maximum number of results (1-50). Default: 10
-        """
-        data = await self._request("search", {"query": query, "limit": limit})
-        results = []
-        if isinstance(data, list):
-            for item in data:
-                results.append(self._parse_response_data(item, VideoSearchResult))
-        return results
-
-    @with_retry(max_attempts=3, delay=1.0)
-    async def youtube_video_stream(
-        self,
-        video_id: str,
-        file_format: str = "mp4",
-        quality: str = "best",
-        format: Optional[str] = None,  # Deprecated: use file_format
-    ) -> LiveStream:
-        """
-        Get a temporary streaming URL for a YouTube video (valid 10 min).
-
-        Args:
-            video_id: YouTube video ID (10-12 chars)
-            file_format: Output format — "mp4" (video), "m4a" (audio), "mp3" (audio). Default: "mp4"
-            quality: Output quality — "best", "worst", "1080p", "720p", etc. Default: "best"
-            format: Deprecated. Use file_format instead
-        """
-        params = {"video_id": video_id, "file_format": file_format, "quality": quality}
-        if format is not None:
-            params["format"] = format
-        data = await self._request("youtube_video_stream", params)
-        return LiveStream(url=data.get("url"), warning=data.get("warning"))
-
-    @with_retry(max_attempts=3, delay=1.0)
-    async def download_progress(self, job_id: str) -> DownloadProgressResponse:
-        """
-        Check the progress of a background download/upload job.
-
-        Args:
-            job_id: Job ID returned from youtube_to_server or youtube_to_telegram
+            query: Search query string, or a full URL (``http://`` /
+                ``https://`` prefixed — without a scheme it is treated as text).
+            limit: Maximum number of results (1-50). Ignored for URL queries.
 
         Returns:
-            DownloadProgressResponse with status, percentage, and result/error when done
+            List of VideoSearchResult. A URL query yields a single-element list
+            built from the ``/video_info`` response shape, with empty metadata
+            fields that ``/video_info`` does not provide.
         """
-        data = await self._request("download_progress", {"job_id": job_id})
-        return self._parse_response_data(data, DownloadProgressResponse)
+        data = await self._request("search", {"query": query, "limit": limit})
+
+        if isinstance(data, dict):
+            # URL query: the API answers with one /video_info-shaped object.
+            return [self._parse_response_data(data, VideoSearchResult)]
+
+        if not isinstance(data, list):
+            return []
+
+        results = []
+        for item in data:
+            results.append(self._parse_response_data(item, VideoSearchResult))
+        return results

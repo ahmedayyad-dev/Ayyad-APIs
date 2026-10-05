@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ayyad_apis"
 dynamic = ["version"]
-description = "Collection of Python wrappers"
+description = "Async Python wrappers for the Ayyad APIs (YouTube, NSFW detection, TubeRelay)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
