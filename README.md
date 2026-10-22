@@ -1,7 +1,7 @@
 # Ayyad APIs
 
-Async Python wrappers for three public APIs: YouTube metadata/download, NSFW
-content detection, and YouTube streaming.
+Async Python wrappers for four public APIs: YouTube metadata/download, NSFW
+content detection, YouTube streaming, and Anghami catalog search/streaming.
 
 ## Installation
 
@@ -16,11 +16,12 @@ pip install -U git+https://github.com/ahmedayyad-dev/Ayyad-APIs.git
 | `YouTubeAPI` | `youtube-to-telegram-uploader-api.p.rapidapi.com` | RapidAPI key header |
 | `PornDetectionAPI` | `porn-detection-api.p.rapidapi.com` | RapidAPI key header |
 | `TubeRelayAPI` | `tuberelay.api.ahmedayyad.dev` | API key **in the URL path** |
+| `AnghamiAPI` | `anghami-music-data-and-stream.p.rapidapi.com` | RapidAPI key header |
 
 All clients are asynchronous and support `async with`:
 
 ```python
-from ayyad_apis import YouTubeAPI, PornDetectionAPI, TubeRelayAPI
+from ayyad_apis import YouTubeAPI, PornDetectionAPI, TubeRelayAPI, AnghamiAPI
 ```
 
 ### YouTubeAPI
@@ -109,6 +110,36 @@ async with TubeRelayAPI(api_key="...") as api:
 full URL raises `TubeRelayError` immediately instead of returning an opaque 422.
 Use `search()`, which accepts URLs, to resolve one first.
 
+### AnghamiAPI
+
+```python
+async with AnghamiAPI(api_key="...") as api:
+    found = await api.search("Amr Diab")
+    print(found.query, found.count)
+
+    for song in found:
+        print(song.id, song.title, song.artist, song.duration_string)
+        print(song.cover_art_url())
+
+    detail = await api.get_song(found[0].id)
+    print(detail.genre, detail.is_explicit)
+
+    stream = await api.stream_url(detail.id, quality="128")
+    print(stream.url)
+
+    await api.download(detail.id, "song.m4a", quality="128")
+```
+
+`search()` returns a `SearchResponse`, which is iterable and indexable, so it can
+be used directly in a `for` loop. `filter_type` defaults to `"top"` and is
+passed through to Anghami.
+
+`stream_url()` resolves a time-limited, key-free CDN URL. Resolve it immediately
+before playing or downloading; it expires. `download()` does that for you.
+
+`quality` accepts `"24"`, `"64"`, `"128"`, or `"196"` (default `"64"`). Note it
+is **196**, not 192.
+
 ## Shared behaviour
 
 ### Sessions
@@ -165,7 +196,3 @@ when every upstream path fails.
 - **`ServerResponse.key`** is derived from `download_url`; the API does not send
   it as a top-level field.
 - **`youtube_to_server` URLs expire after 10 minutes.**
-
-## Changelog
-
-See [CHANGELOG.md](CHANGELOG.md). 0.3.0 contains breaking changes.

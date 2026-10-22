@@ -1,11 +1,12 @@
 """
 Ayyad APIs - Collection of async Python wrappers for Ahmed Ayyad's public APIs.
 
-Three clients are exposed:
+Four clients are exposed:
 
 - :class:`YouTubeAPI` — YouTube metadata, Telegram upload, server download, live HLS
 - :class:`PornDetectionAPI` — NSFW detection for images and videos
 - :class:`TubeRelayAPI` — YouTube info, search and streaming
+- :class:`AnghamiAPI` — Anghami catalog search, song metadata, and CDN streams
 
 All clients are asynchronous and support ``async with``::
 
@@ -13,7 +14,7 @@ All clients are asynchronous and support ``async with``::
         print(await client.video_info("https://youtu.be/dQw4w9WgXcQ"))
 """
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 # Import shared utilities
 from .utils import (
@@ -78,6 +79,14 @@ from .tube_relay import (
     VideoInfo,
     StreamUrl,
     TubeRelayError,
+)
+
+from .anghami import (
+    AnghamiAPI,
+    SongSummary,
+    SongDetail,
+    SearchResponse,
+    AnghamiStreamUrl,
 )
 
 __all__ = [
@@ -146,4 +155,11 @@ __all__ = [
     "VideoInfo",
     "StreamUrl",
     "TubeRelayError",
+
+    # Anghami
+    "AnghamiAPI",
+    "SongSummary",
+    "SongDetail",
+    "SearchResponse",
+    "AnghamiStreamUrl",
 ]
