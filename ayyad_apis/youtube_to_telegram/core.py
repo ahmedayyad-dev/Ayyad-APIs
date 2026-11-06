@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import json
+import shutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Union
 
 # Import base classes and utilities
 from ..utils import (
@@ -128,6 +130,208 @@ class TelegramResponse(BaseResponse):
     warning: Optional[str] = None
 
 
+AUDIO_EXTENSIONS = frozenset({".mp3", ".m4a", ".aac", ".opus", ".ogg", ".wav", ".flac"})
+
+
+async def strip_thumbnail_from_video(source: Union[str, Path], output_path: Union[str, Path]) -> str:
+    """Extract audio track and strip video thumbnail from a video file or remote URL using ffmpeg.
+
+    Directly passes the source (local path or remote HTTP/HTTPS URL) to ffmpeg so no
+    intermediate video file needs to be downloaded to disk first.
+
+    Args:
+        source: Remote video URL (e.g. Google CDN URL) or local file path.
+        output_path: Path to save the extracted audio file.
+
+    Returns:
+        Path to the output audio file as a string.
+
+    Raises:
+        DownloadError: If ffmpeg is not found in PATH or extraction fails.
+    """
+    ffmpeg_bin = shutil.which("ffmpeg")
+    if not ffmpeg_bin:
+        raise DownloadError("ffmpeg is required to strip video thumbnail but was not found in PATH.")
+
+    source_str = str(source)
+    output_str = str(output_path)
+    ext = Path(output_str).suffix.lower()
+
+    if ext == ".mp3":
+        codec_candidates = [
+            ["-c:a", "libmp3lame", "-q:a", "2"],
+            ["-c:a", "mp3"],
+        ]
+    elif ext in (".m4a", ".aac"):
+        codec_candidates = [
+            ["-c:a", "copy"],
+            ["-c:a", "aac", "-b:a", "192k"],
+        ]
+    elif ext == ".opus":
+        codec_candidates = [
+            ["-c:a", "libopus", "-b:a", "128k"],
+            ["-c:a", "copy"],
+        ]
+    elif ext == ".wav":
+        codec_candidates = [
+            ["-c:a", "pcm_s16le"],
+        ]
+    else:
+        codec_candidates = [
+            ["-c:a", "copy"],
+            [],
+        ]
+
+    reconnect_args = [
+        "-reconnect", "1",
+        "-reconnect_streamed", "1",
+        "-reconnect_delay_max", "5",
+    ] if source_str.startswith(("http://", "https://")) else []
+
+    last_error = ""
+    for codec_args in codec_candidates:
+        cmd = [
+            ffmpeg_bin,
+            "-y",
+            *reconnect_args,
+            "-i", source_str,
+            "-vn",
+            *codec_args,
+            output_str,
+        ]
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        _, stderr = await proc.communicate()
+        if proc.returncode == 0 and Path(output_str).exists() and Path(output_str).stat().st_size > 0:
+            return output_str
+        last_error = stderr.decode("utf-8", errors="replace")
+        try:
+            Path(output_str).unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    raise DownloadError(f"Failed to strip thumbnail with ffmpeg: {last_error}")
+
+
+@dataclass
+class GoogleResponse(BaseResponse):
+    """Response when uploading YouTube video or audio to Google Photos"""
+    video_url: Optional[str] = None
+    audio_url: Optional[str] = None
+    warning: Optional[str] = None
+    _api_instance: Optional[YouTubeAPI] = None
+
+    async def download_file(
+        self,
+        file_path: str,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[float] = None,
+        strip_thumbnail: bool = True,
+    ) -> DownloadResult:
+        """Download the resulting file to ``file_path``.
+
+        If the file extension is an audio format (e.g. .mp3, .m4a, .aac, .opus, .wav, .flac)
+        or if audio_url is present, it delegates to :meth:`download_audio` to ensure any
+        1-frame thumbnail video attached by Google Photos is stripped.
+        """
+        ext = Path(file_path).suffix.lower()
+        is_audio = ext in AUDIO_EXTENSIONS
+
+        if is_audio or (self.audio_url and not self.video_url):
+            return await self.download_audio(
+                file_path,
+                max_retries=max_retries,
+                retry_delay=retry_delay,
+                strip_thumbnail=strip_thumbnail,
+            )
+
+        return await self.download_video(file_path, max_retries=max_retries, retry_delay=retry_delay)
+
+    async def download_video(
+        self,
+        file_path: str,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[float] = None,
+    ) -> DownloadResult:
+        """Download the video file from Google Photos CDN to ``file_path``."""
+        if not self._api_instance:
+            raise DownloadError("API instance not available")
+        if not self.video_url:
+            raise DownloadError("No video URL available")
+        logger.info(f"Downloading video to {file_path} from Google Photos...")
+
+        retries = max_retries if max_retries is not None else self._api_instance._max_retries
+        delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
+
+        return await self._api_instance.download_file(self.video_url, file_path, retries, delay)
+
+    async def download_audio(
+        self,
+        file_path: str,
+        max_retries: Optional[int] = None,
+        retry_delay: Optional[float] = None,
+        strip_thumbnail: bool = True,
+    ) -> DownloadResult:
+        """Download the audio stream to ``file_path``.
+
+        Audio files uploaded to Google Photos are packaged as 1-frame MP4 videos with the
+        video thumbnail. If ``strip_thumbnail=True`` (default):
+        - Directly passes the remote video URL to ffmpeg to stream and strip the 1-frame thumbnail
+          without downloading a temporary video file to disk first.
+        - If ffmpeg extraction fails or ffmpeg is not installed, it automatically falls back
+          to downloading the audio directly from the API (``audio_url``).
+
+        Args:
+            file_path: Target path to save the audio file (e.g. 'song.mp3', 'song.m4a').
+            max_retries: Number of retry attempts.
+            retry_delay: Delay between retries in seconds.
+            strip_thumbnail: Whether to strip the 1-frame thumbnail video stream (default True).
+        """
+        if not self._api_instance:
+            raise DownloadError("API instance not available")
+
+        retries = max_retries if max_retries is not None else self._api_instance._max_retries
+        delay = retry_delay if retry_delay is not None else self._api_instance._retry_delay
+        ffmpeg_available = bool(shutil.which("ffmpeg"))
+
+        # Step 1: Pass the remote video URL directly to ffmpeg to stream and strip thumbnail on the fly
+        if strip_thumbnail and ffmpeg_available and self.video_url:
+            try:
+                logger.info(f"Extracting clean audio directly from remote URL to {file_path} via ffmpeg...")
+                target_dir = Path(file_path).resolve().parent
+                target_dir.mkdir(parents=True, exist_ok=True)
+                await strip_thumbnail_from_video(self.video_url, file_path)
+                return DownloadResult(file_path=file_path, file_size=Path(file_path).stat().st_size)
+            except Exception as e:
+                logger.warning(
+                    f"Direct audio extraction with ffmpeg failed ({e}); falling back to downloading audio from API directly..."
+                )
+                try:
+                    Path(file_path).unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        # Step 2: Fallback to downloading audio directly from the API (audio_url)
+        if self.audio_url:
+            logger.info(f"Downloading pre-stripped audio stream from API to {file_path}...")
+            return await self._api_instance.download_file(self.audio_url, file_path, retries, delay)
+
+        # Step 3: If no audio_url was returned and ffmpeg extraction failed/unavailable, download video_url
+        if self.video_url:
+            if strip_thumbnail:
+                logger.warning(
+                    "ffmpeg is unavailable or failed, and no audio_url was provided by the API. "
+                    "Downloading raw file from Google Photos (contains 1-frame video thumbnail)."
+                )
+            logger.info(f"Downloading file to {file_path} from Google Photos...")
+            return await self._api_instance.download_file(self.video_url, file_path, retries, delay)
+
+        raise DownloadError("No download URL available")
+
+
 @dataclass
 class DownloadResult(BaseResponse):
     """Represents result of a local file download"""
@@ -162,6 +366,7 @@ class QueuedJobResponse(BaseResponse):
 class ServerResponse(BaseResponse):
     """Response for /youtube_to_server — includes a temporary download URL (valid 10 min)"""
     download_url: Optional[str] = None
+    key: Optional[str] = None
     video_title: Optional[str] = None
     video_id: Optional[str] = None
     video_url: Optional[str] = None
@@ -175,16 +380,9 @@ class ServerResponse(BaseResponse):
     warning: Optional[str] = None
     _api_instance: Optional[YouTubeAPI] = None
 
-    @property
-    def key(self) -> Optional[str]:
-        """Stream key extracted from :attr:`download_url`.
-
-        The API does not return ``key`` as a top-level field; it only appears
-        inside the download URL's query string.
-        """
-        if not self.download_url or "key=" not in self.download_url:
-            return None
-        return self.download_url.split("key=")[1].split("&")[0]
+    def __post_init__(self):
+        if not self.key and self.download_url and "key=" in self.download_url:
+            self.key = self.download_url.split("key=")[1].split("&")[0]
 
     @property
     def duration_formatted(self) -> str:
@@ -314,7 +512,7 @@ class YouTubeAPI(BaseRapidAPI):
 
         parsed_data = data.copy()
 
-        if response_class == ServerResponse:
+        if response_class in (ServerResponse, GoogleResponse):
             parsed_data['_api_instance'] = self
 
         if 'uploader' in parsed_data and isinstance(parsed_data['uploader'], dict):
@@ -465,7 +663,7 @@ class YouTubeAPI(BaseRapidAPI):
     # ==================== Public Methods ====================
 
     @with_retry(max_attempts=3, delay=1.0)
-    async def video_info(self, url: str) -> VideoInfoResponse:
+    async def video_info(self, url: str, cookies: Optional[str] = None) -> VideoInfoResponse:
         """
         Get detailed metadata for any supported video URL.
 
@@ -474,8 +672,10 @@ class YouTubeAPI(BaseRapidAPI):
 
         Args:
             url: Full video URL from any supported site
+            cookies: Optional Netscape cookies string for this request
         """
-        data = await self._request("video_info", {"video_url": url})
+        extra_headers = {"X-Cookies": cookies} if cookies else None
+        data = await self._request("video_info", {"video_url": url}, extra_headers=extra_headers)
         return self._parse_response_data(data, VideoInfoResponse)
 
     @with_retry(max_attempts=3, delay=1.0)
@@ -486,6 +686,7 @@ class YouTubeAPI(BaseRapidAPI):
         quality: str = "best",
         webhook_url: Optional[str] = None,
         format: Optional[str] = None,  # Deprecated: use file_format
+        cookies: Optional[str] = None,
     ) -> ServerResponse:
         """
         Download YouTube video to server and get a temporary download URL (valid 10 min).
@@ -496,13 +697,15 @@ class YouTubeAPI(BaseRapidAPI):
             quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
             webhook_url: Optional URL to receive POST callback when download completes
             format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+            cookies: Optional Netscape cookies string for this request
         """
         params = {"video_id": video_id, "file_format": file_format, "quality": quality}
         if format is not None:
             params["format"] = format
         if webhook_url is not None:
             params["webhook_url"] = webhook_url
-        data = await self._request("youtube_to_server", params)
+        extra_headers = {"X-Cookies": cookies} if cookies else None
+        data = await self._request("youtube_to_server", params, extra_headers=extra_headers)
         response = self._parse_response_data(data, ServerResponse)
         self._require_field(response.download_url, "download_url", "youtube_to_server")
         return response
@@ -515,16 +718,18 @@ class YouTubeAPI(BaseRapidAPI):
         quality: str = "best",
         webhook_url: Optional[str] = None,
         format: Optional[str] = None,  # Deprecated: use file_format
+        cookies: Optional[str] = None,
     ) -> TelegramResponse:
         """
         Upload YouTube video/audio to Telegram and get the message link.
 
         Args:
             video_id: YouTube video ID (10-12 chars)
-            file_format: Output format — "m4a" (audio, cached), "mp3" (audio, not cached), "mp4" (video, cached). Default: "m4a"
+            file_format: Output format — "m4a" (audio, cached), "mp3" (audio, cached), "mp4" (video, cached). Default: "m4a"
             quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
             webhook_url: Optional URL to receive POST callback when upload completes
             format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+            cookies: Optional Netscape cookies string for this request
 
         Raises:
             DownloadInProgressError: If the same video/format/quality is already
@@ -535,9 +740,48 @@ class YouTubeAPI(BaseRapidAPI):
             params["format"] = format
         if webhook_url is not None:
             params["webhook_url"] = webhook_url
-        data = await self._request("youtube_to_telegram", params)
+        extra_headers = {"X-Cookies": cookies} if cookies else None
+        data = await self._request("youtube_to_telegram", params, extra_headers=extra_headers)
         response = self._parse_response_data(data, TelegramResponse)
         self._require_field(response.file_url, "file_url", "youtube_to_telegram")
+        return response
+
+    @with_retry(max_attempts=3, delay=1.0)
+    async def youtube_to_google(
+        self,
+        video_id: str,
+        file_format: str = "mp4",
+        quality: str = "best",
+        webhook_url: Optional[str] = None,
+        format: Optional[str] = None,  # Deprecated: use file_format
+        cookies: Optional[str] = None,
+    ) -> GoogleResponse:
+        """
+        Upload YouTube video or audio to Google Photos and get direct streaming/download URLs.
+
+        Audio formats (mp3, m4a) are uploaded to Google Photos and return both `video_url`
+        (from Google Photos) and `audio_url` (direct audio stream).
+
+        Args:
+            video_id: YouTube video ID (10-12 chars)
+            file_format: Output format — "mp4" (video), "m4a" (audio), "mp3" (audio). Default: "mp4"
+            quality: Output quality — "best", "worst", "1080p", "720p", "480p", "360p", "256k", "128k". Default: "best"
+            webhook_url: Optional URL to receive POST callback when upload completes
+            format: Deprecated. Use file_format instead ("audio" → "m4a", "video" → "mp4")
+            cookies: Optional Netscape cookies string for this request
+
+        Returns:
+            GoogleResponse with video_url and optional audio_url.
+        """
+        params = {"video_id": video_id, "file_format": file_format, "quality": quality}
+        if format is not None:
+            params["format"] = format
+        if webhook_url is not None:
+            params["webhook_url"] = webhook_url
+        extra_headers = {"X-Cookies": cookies} if cookies else None
+        data = await self._request("youtube_to_google", params, extra_headers=extra_headers)
+        response = self._parse_response_data(data, GoogleResponse)
+        self._require_field(response.video_url, "video_url", "youtube_to_google")
         return response
 
     @with_retry(max_attempts=3, delay=1.0)

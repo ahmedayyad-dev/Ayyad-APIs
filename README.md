@@ -38,6 +38,12 @@ async with YouTubeAPI(api_key="...") as api:
     sent = await api.youtube_to_telegram("dQw4w9WgXcQ", file_format="m4a")
     print(sent.file_url)
 
+    # Upload to Google Photos (returns permanent CDN URL and direct audio stream for m4a/mp3)
+    google = await api.youtube_to_google("dQw4w9WgXcQ", file_format="m4a")
+    print(google.video_url, google.audio_url)
+    # Automatically strips the 1-frame thumbnail video and converts to pure audio
+    await google.download_audio("song.mp3")
+
     server = await api.youtube_to_server("dQw4w9WgXcQ", file_format="mp4")
     local = await server.download_file("video.mp4")
 
