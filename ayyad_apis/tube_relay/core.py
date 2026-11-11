@@ -8,8 +8,10 @@ Author: Ahmed Ayyad
 """
 
 import logging
+import re
 from dataclasses import dataclass, field
-from typing import Optional, List, Any
+from pathlib import Path
+from typing import Optional, List, Any, Union
 from urllib.parse import urlencode
 
 import aiohttp
@@ -24,6 +26,8 @@ from ..utils import (
 )
 
 logger = logging.getLogger(__name__)
+
+_YOUTUBE_ID_PATTERN = re.compile(r"(?:v=|\/|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})")
 
 
 # ==================== Exception ====================
@@ -231,27 +235,30 @@ class TubeRelayAPI:
 
     @staticmethod
     def _validate_id(video_id: str) -> str:
-        """Validate a bare YouTube ID before hitting the server.
+        """Validate or extract a bare YouTube ID before hitting the server.
 
-        The server constrains ``video_id`` to 11-12 characters, so a full URL
-        would come back as an opaque 422. Fail fast with a clear message.
+        If a full YouTube URL is provided (e.g. youtu.be, watch?v=, shorts/),
+        automatically extracts the 11-character video ID.
         """
-        if not video_id:
+        if not video_id or not str(video_id).strip():
             raise TubeRelayError("video_id is required")
 
-        if "://" in video_id or video_id.startswith("www."):
+        val = str(video_id).strip()
+        if "://" in val or val.startswith("www.") or "youtu" in val:
+            match = _YOUTUBE_ID_PATTERN.search(val)
+            if match:
+                return match.group(1)
             raise TubeRelayError(
-                f"video_id must be a bare YouTube ID (11-12 characters), not a "
-                f"URL. Extract it from the URL, or use search() which accepts URLs."
+                f"Could not extract a valid YouTube video ID from URL: {video_id!r}"
             )
 
-        if not (11 <= len(video_id) <= 12):
+        if not (11 <= len(val) <= 12):
             raise TubeRelayError(
-                f"video_id must be 11-12 characters, got {len(video_id)}: "
+                f"video_id must be 11-12 characters, got {len(val)}: "
                 f"{video_id!r}"
             )
 
-        return video_id
+        return val
 
     @staticmethod
     def _parse_video_info(data: dict, api: Optional["TubeRelayAPI"] = None) -> VideoInfo:
@@ -411,3 +418,43 @@ class TubeRelayAPI:
                 endpoint="stream",
             )
         return result_path
+
+    async def quick_download(
+        self,
+        query_or_url: str,
+        file_path: Optional[str] = None,
+        type: str = "audio",
+        quality: str = "best",
+        max_retries: int = 3,
+    ) -> str:
+        """
+        One-liner search and download helper for TubeRelay.
+
+        Accepts a full YouTube URL, a bare video ID, or search keywords.
+
+        Args:
+            query_or_url: YouTube URL, video ID, or search query.
+            file_path: Optional output file path.
+            type: "audio" or "video".
+            quality: Desired quality.
+            max_retries: Download retry attempts.
+
+        Returns:
+            Saved file path.
+        """
+        target = query_or_url.strip()
+        if "://" in target or (len(target) == 11 and " " not in target):
+            video_id = self._validate_id(target)
+        else:
+            results = await self.search(target, limit=1)
+            if not results:
+                raise TubeRelayError(f"No YouTube videos found matching: {target!r}")
+            video_id = results[0].id
+
+        if file_path is None:
+            ext = ".mp3" if type == "audio" else ".mp4"
+            dest = f"yt_{video_id}{ext}"
+        else:
+            dest = file_path
+
+        return await self.download(video_id, dest, type=type, quality=quality, max_retries=max_retries)

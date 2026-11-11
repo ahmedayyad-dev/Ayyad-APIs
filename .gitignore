@@ -35,5 +35,6 @@ env/
 *.log
 *.pot
 *.pyc
+.pytest_cache/
 .DS_Store
 Thumbs.db

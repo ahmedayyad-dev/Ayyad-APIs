@@ -1,7 +1,8 @@
 # Ayyad APIs
 
-Async Python wrappers for four public APIs: YouTube metadata/download, NSFW
-content detection, YouTube streaming, and Anghami catalog search/streaming.
+Async Python wrappers for public APIs: YouTube metadata/download, NSFW
+content detection and moderation, YouTube streaming, Anghami catalog search/streaming,
+and TikTok public data extraction.
 
 ## Installation
 
@@ -14,14 +15,25 @@ pip install -U git+https://github.com/ahmedayyad-dev/Ayyad-APIs.git
 | Client | Base URL | Auth |
 | --- | --- | --- |
 | `YouTubeAPI` | `youtube-to-telegram-uploader-api.p.rapidapi.com` | RapidAPI key header |
+| `YouTubeStreamAPI` | `youtube-stream-mp3-url-api.p.rapidapi.com` | RapidAPI key header |
 | `PornDetectionAPI` | `porn-detection-api.p.rapidapi.com` | RapidAPI key header |
+| `NSFWModerationAPI` | `nsfw-image-video-moderation-api.p.rapidapi.com` | RapidAPI key header |
 | `TubeRelayAPI` | `tuberelay.api.ahmedayyad.dev` | API key **in the URL path** |
 | `AnghamiAPI` | `anghami-music-data-and-stream.p.rapidapi.com` | RapidAPI key header |
+| `TikTokAPI` | `tiktok-data-api20.p.rapidapi.com` | RapidAPI key header |
 
 All clients are asynchronous and support `async with`:
 
 ```python
-from ayyad_apis import YouTubeAPI, PornDetectionAPI, TubeRelayAPI, AnghamiAPI
+from ayyad_apis import (
+    YouTubeAPI,
+    YouTubeStreamAPI,
+    PornDetectionAPI,
+    NSFWModerationAPI,
+    TubeRelayAPI,
+    AnghamiAPI,
+    TikTokAPI,
+)
 ```
 
 ### YouTubeAPI
@@ -95,11 +107,53 @@ Local files:
 > it builds from its own internal base URL. It only works when the API is fronted
 > by a gateway that injects the required proxy-secret header.
 
+### NSFWModerationAPI
+
+Async client for the NSFW Image & Video Moderation API (`nsfw-image-video-moderation-api.p.rapidapi.com`).
+
+```python
+async with NSFWModerationAPI(api_key="...") as api:
+    # URL prediction (safe responses or HTTP 451 non-error handling)
+    image = await api.predict_image_url("https://example.com/photo.jpg", threshold=0.7)
+    print(image.label, image.is_nsfw, image.scores)
+
+    # Local file upload
+    result = await api.predict_image_upload("photo.jpg")
+    print(result.label, result.policy)
+
+    # Video moderation via URL
+    video = await api.predict_video_url("https://example.com/video.mp4")
+    print(video.nsfw, video.reason)
+
+    # Video upload & moderation via temporary presigned upload URL
+    video_res = await api.upload_video_and_predict("clip.mp4")
+    print(video_res.nsfw, video_res.stats.max_prob)
+
+    # Developer Tools:
+    # 1. Quick boolean safety check (transparently accepts URL or local path, image or video)
+    if await api.is_safe("https://example.com/photo.jpg"):
+        print("Safe to publish!")
+
+    # 2. Concurrently audit a local directory of images/videos
+    scan = await api.scan_directory("uploads/", recursive=True)
+    print(f"Total: {scan.total_files}, Safe: {len(scan.safe_files)}, Flagged: {len(scan.flagged_files)}")
+
+    # 3. Automatically quarantine flagged files to a separate directory
+    quarantine = await api.quarantine_directory("uploads/", quarantine_dir="quarantined/")
+    print("Quarantined files:", quarantine.quarantined_files)
+
+    # 4. Batch moderate multiple targets concurrently
+    results = await api.moderate_batch(["https://example.com/1.jpg", "photo.png"])
+    for target, is_safe, err in results:
+        print(target, "Safe:", is_safe)
+```
+
 ### TubeRelayAPI
 
 ```python
 async with TubeRelayAPI(api_key="...") as api:
-    info = await api.get_info("dQw4w9WgXcQ")
+    # Accepts bare 11-char ID or full YouTube URL (e.g., https://youtu.be/... or watch?v=...)
+    info = await api.get_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
     print(info.title, info.duration_string)
 
     for v in await api.search("python tutorial", limit=5):
@@ -110,11 +164,43 @@ async with TubeRelayAPI(api_key="...") as api:
     # Key-free URL that is safe to hand to a player (expires in 300s)
     public = await api.stream_url("dQw4w9WgXcQ", type="audio")
     print(public.url, public.expires_in)
+
+    # One-liner search & download:
+    await api.quick_download("rick astley never gonna give you up", "song.mp3")
 ```
 
-`get_info` and `stream_url` require a bare 11–12 character video ID; passing a
-full URL raises `TubeRelayError` immediately instead of returning an opaque 422.
-Use `search()`, which accepts URLs, to resolve one first.
+`get_info`, `stream_url`, and `download` automatically validate and extract the 11-character video ID from bare IDs or any valid YouTube URL (including `youtu.be`, `watch?v=`, and `/shorts/`).
+
+### YouTubeStreamAPI
+
+Async client for the YouTube Stream MP3 URL API hosted on RapidAPI
+(`youtube-stream-mp3-url-api.p.rapidapi.com`).
+
+Unlike `TubeRelayAPI`, this client authenticates with standard RapidAPI key headers
+and automatically accepts full YouTube URLs (e.g. `youtu.be`, `watch?v=...`, `shorts/...`)
+without forcing manual ID extraction:
+
+```python
+async with YouTubeStreamAPI(api_key="...") as api:
+    # Accepts URL or 11-char ID directly
+    info = await api.get_info("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+    print(info.title, info.duration_string)
+
+    # Search YouTube
+    results = await api.search("lo-fi hip hop", limit=5)
+    for r in results:
+        print(r.id, r.title)
+
+    # Temporary CDN stream URL (expires in 300s)
+    stream = await api.stream_url(info.id, type="audio", quality="best")
+    print(stream.url)
+
+    # Download audio or video directly
+    await api.download(info.id, "rick.mp3", type="audio")
+
+    # One-liner search & download:
+    await api.quick_download("rick astley never gonna give you up", "song.mp3")
+```
 
 ### AnghamiAPI
 
@@ -134,6 +220,15 @@ async with AnghamiAPI(api_key="...") as api:
     print(stream.url)
 
     await api.download(detail.id, "song.m4a", quality="128")
+
+    # Developer Tools:
+    # 1. One-liner search & download:
+    await api.quick_download("Amr Diab Tamally Maak", output_path="tamally.m4a")
+
+    # 2. Related track recommendations:
+    recommendations = await api.get_recommendations(detail.id)
+    for rec in recommendations:
+        print(rec.id, rec.title, rec.artist)
 ```
 
 `search()` returns a `SearchResponse`, which is iterable and indexable, so it can
@@ -145,6 +240,77 @@ before playing or downloading; it expires. `download()` does that for you.
 
 `quality` accepts `"24"`, `"64"`, `"128"`, or `"196"` (default `"64"`). Note it
 is **196**, not 192.
+
+### TikTokAPI
+
+Async client for the TikTok Data API (`tiktok-data-api20.p.rapidapi.com`).
+Read-only access to public TikTok data without login or cookies: link resolution,
+video details with CDN streams, user profiles, posts, and sound discovery.
+
+```python
+async with TikTokAPI(api_key="...") as api:
+    # Resolve shortened link (e.g. vm.tiktok.com)
+    resolved = await api.resolve_link("https://vm.tiktok.com/ZS9fBknLstd2w-34rzR/")
+    print(resolved.landing_url, resolved.aweme_id)
+
+    # Check video availability status
+    statuses = await api.video_status(["7705550414279675143"])
+    print(statuses[0].aweme_id, statuses[0].pass_status_check)
+
+    # Get full video metadata & statistics
+    video = await api.get_video("7705550414279675143")
+    print(video.desc, video.statistics.digg_count, video.statistics.play_count)
+    print("Direct CDN URL:", video.video.primary_video_url)
+
+    # Download video or audio stream
+    await video.download_video("video.mp4")
+    await video.download_music("audio.mp3")
+
+    # Or 1-line direct download from URL or ID:
+    await api.download_video("https://vm.tiktok.com/ZS9fBknLstd2w-34rzR/", "video.mp4")
+    await api.download_music("https://vm.tiktok.com/ZS9fBknLstd2w-34rzR/", "audio.mp3")
+
+    # Author profile
+    profile = await api.get_user(video.author.sec_uid)
+    print(profile.nickname, profile.follower_count, profile.following_count)
+
+    # Author posts (paginated, iterable)
+    posts = await api.get_user_posts(profile.sec_uid, count=20)
+    for p in posts:
+        print(p.aweme_id, p.desc, p.duration_string)
+
+    # Videos by sound & related sounds
+    sound_videos = await api.get_music_videos("7705550640109390598", count=10)
+    related = await api.get_related_music("7705550640109390598")
+
+    # Developer Tools:
+    # 1. Async Generator Paginator (seamlessly stream across pages):
+    async for post in api.iter_user_posts(profile.sec_uid, max_posts=50):
+        print(post.aweme_id, post.desc)
+
+    async for video in api.iter_music_videos("7705550640109390598", max_videos=30):
+        print(video.aweme_id)
+
+    # 2. Creator Analytics Engine:
+    stats = await api.get_user_analytics(profile.sec_uid, sample_size=20)
+    print(f"Engagement Rate: {stats.engagement_rate}%")
+    print(f"Avg Views: {stats.avg_views}, Avg Likes: {stats.avg_likes}")
+    if stats.top_video:
+        print("Best Video:", stats.top_video.desc)
+
+    # 3. Bulk & Batch Downloads (with concurrency and progress tracking):
+    batch = await api.download_user_videos(
+        profile.sec_uid,
+        output_dir="downloads/creator/",
+        max_videos=10,
+        concurrency=3,
+        progress_callback=lambda file, done, total: print(f"[{done}/{total}] {file}")
+    )
+    print("Downloaded:", len(batch.downloaded), "Skipped:", len(batch.skipped))
+
+    # Or batch download a list of arbitrary URLs or IDs:
+    await api.download_batch(["https://vm.tiktok.com/...", "7705550414279675143"], output_dir="batch/")
+```
 
 ## Shared behaviour
 

@@ -1,20 +1,24 @@
 """
 Ayyad APIs - Collection of async Python wrappers for Ahmed Ayyad's public APIs.
 
-Four clients are exposed:
+Seven clients are exposed:
 
 - :class:`YouTubeAPI` — YouTube metadata, Telegram upload, Google Photos upload, server download, live HLS
-- :class:`PornDetectionAPI` — NSFW detection for images and videos
-- :class:`TubeRelayAPI` — YouTube info, search and streaming
-- :class:`AnghamiAPI` — Anghami catalog search, song metadata, and CDN streams
+- :class:`YouTubeStreamAPI` — RapidAPI YouTube streaming, info, search, and MP3/video download
+- :class:`PornDetectionAPI` — NSFW detection for images and videos (porn-detection-api)
+- :class:`NSFWModerationAPI` — NSFW detection, moderation, directory audit & quarantine (nsfw-image-video-moderation-api)
+- :class:`TubeRelayAPI` — Direct key-in-path YouTube info, search and streaming
+- :class:`AnghamiAPI` — Anghami catalog search, song metadata, 1-line downloads, and CDN streams
+- :class:`TikTokAPI` — TikTok link resolution, bulk downloads, video details, stream extraction, profiles, and analytics
 
 All clients are asynchronous and support ``async with``::
 
-    async with YouTubeAPI(api_key="...") as client:
-        print(await client.video_info("https://youtu.be/dQw4w9WgXcQ"))
+    async with YouTubeStreamAPI(api_key="...") as client:
+        info = await client.get_info("dQw4w9WgXcQ")
+        print(info.title, info.duration_string)
 """
 
-__version__ = "0.6.0"
+__version__ = "0.8.0"
 
 # Import shared utilities
 from .utils import (
@@ -58,6 +62,14 @@ from .porn_detection import (
     UploadUrl,
 )
 
+from .nsfw_moderation import (
+    NSFWModerationAPI,
+    NSFWImageVideoModerationAPI,
+    NSFWModerationError,
+    DirectoryScanResult,
+    QuarantineResult,
+)
+
 from .youtube_to_telegram import (
     YouTubeAPI,
     APIResponseError as YouTubeAPIResponseError,
@@ -83,12 +95,39 @@ from .tube_relay import (
     TubeRelayError,
 )
 
+from .youtube_stream import (
+    YouTubeStreamAPI,
+    YouTubeStreamMP3API,
+    YouTubeStreamError,
+)
+
 from .anghami import (
     AnghamiAPI,
     SongSummary,
     SongDetail,
     SearchResponse,
     AnghamiStreamUrl,
+)
+
+from .tiktok import (
+    TikTokAPI,
+    TikTokDataAPI,
+    TikTokResolvedLink,
+    TikTokShareLink,
+    TikTokVideoStatus,
+    TikTokUser,
+    TikTokUserProfile,
+    TikTokStatistics,
+    TikTokMusic,
+    TikTokVideoInfo,
+    TikTokVideo,
+    TikTokPostsResponse,
+    TikTokMusicVideosResponse,
+    TikTokRelatedMusicResponse,
+    TikTokUserAnalytics,
+    TikTokBatchDownloadResult,
+    clean_tiktok_url,
+    extract_aweme_id,
 )
 
 __all__ = [
@@ -137,6 +176,13 @@ __all__ = [
     "VideoSegment",
     "UploadUrl",
 
+    # NSFW Moderation
+    "NSFWModerationAPI",
+    "NSFWImageVideoModerationAPI",
+    "NSFWModerationError",
+    "DirectoryScanResult",
+    "QuarantineResult",
+
     # YouTube to Telegram
     "YouTubeAPI",
     "YouTubeAPIResponseError",
@@ -160,10 +206,35 @@ __all__ = [
     "StreamUrl",
     "TubeRelayError",
 
+    # YouTube Stream (RapidAPI)
+    "YouTubeStreamAPI",
+    "YouTubeStreamMP3API",
+    "YouTubeStreamError",
+
     # Anghami
     "AnghamiAPI",
     "SongSummary",
     "SongDetail",
     "SearchResponse",
     "AnghamiStreamUrl",
+
+    # TikTok
+    "TikTokAPI",
+    "TikTokDataAPI",
+    "TikTokResolvedLink",
+    "TikTokShareLink",
+    "TikTokVideoStatus",
+    "TikTokUser",
+    "TikTokUserProfile",
+    "TikTokStatistics",
+    "TikTokMusic",
+    "TikTokVideoInfo",
+    "TikTokVideo",
+    "TikTokPostsResponse",
+    "TikTokMusicVideosResponse",
+    "TikTokRelatedMusicResponse",
+    "TikTokUserAnalytics",
+    "TikTokBatchDownloadResult",
+    "clean_tiktok_url",
+    "extract_aweme_id",
 ]

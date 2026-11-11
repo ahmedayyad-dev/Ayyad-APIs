@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ayyad_apis"
 dynamic = ["version"]
-description = "Async Python wrappers for the Ayyad APIs (YouTube, NSFW detection, TubeRelay)"
+description = "Async Python wrappers for the Ayyad APIs (YouTube, NSFW moderation, TubeRelay, Anghami, TikTok)"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
@@ -32,3 +32,9 @@ include = ["ayyad_apis*"]
 
 [tool.setuptools.package-data]
 ayyad_apis = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+

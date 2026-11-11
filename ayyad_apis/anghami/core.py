@@ -10,6 +10,7 @@ Author: Ahmed Ayyad
 
 import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Union
 from urllib.parse import quote
 
@@ -397,3 +398,75 @@ class AnghamiAPI(BaseRapidAPI):
                 f"Failed to download song {song_id} to {file_path}"
             )
         return result_path
+
+    async def quick_download(
+        self,
+        query: str,
+        output_path: Optional[Union[str, Path]] = None,
+        quality: Union[str, int] = "128",
+        max_retries: int = 3,
+    ) -> str:
+        """
+        One-liner search and download for Anghami.
+
+        Searches for the query, picks the top matching track, resolves its CDN
+        playback URL, and downloads it directly to disk.
+
+        Args:
+            query: Song title, artist name, or search keywords.
+            output_path: Optional destination file path (defaults to ``<artist> - <title>.m4a``).
+            quality: Audio bitrate (``"24"``, ``"64"``, ``"128"``, or ``"196"``, default: ``"128"``).
+            max_retries: Maximum download retry attempts.
+
+        Returns:
+            String path to the saved audio file.
+
+        Raises:
+            InvalidInputError: If no songs matched the query or query is empty.
+        """
+        search_res = await self.search(query)
+        if not search_res.results:
+            raise InvalidInputError(f"No songs found on Anghami matching: {query!r}")
+
+        top_song = search_res.results[0]
+        if output_path is None:
+            artist = (top_song.artist or "Unknown").replace("/", "-")
+            title = (top_song.title or top_song.id).replace("/", "-")
+            destination = f"{artist} - {title}.m4a"
+        else:
+            destination = str(output_path)
+
+        return await self.download(top_song.id, file_path=destination, quality=quality, max_retries=max_retries)
+
+    async def get_recommendations(
+        self,
+        song_id: Union[str, int],
+    ) -> List[SongSummary]:
+        """
+        Get recommended/related songs for a given track.
+
+        Extracts and parses recommended tracks from the track's recommendation
+        sections into clean SongSummary objects.
+
+        Args:
+            song_id: Anghami song ID.
+
+        Returns:
+            List of SongSummary objects representing related tracks.
+        """
+        detail = await self.get_song(song_id)
+        recommendations: List[SongSummary] = []
+        seen_ids = {detail.id}
+
+        for sec in detail.sections:
+            if isinstance(sec, dict):
+                # Sections often contain a 'data' list of songs
+                items = sec.get("data") or []
+                for item in items:
+                    if isinstance(item, dict) and item.get("id"):
+                        s_id = str(item["id"])
+                        if s_id not in seen_ids:
+                            seen_ids.add(s_id)
+                            recommendations.append(self._parse_summary(item))
+
+        return recommendations
